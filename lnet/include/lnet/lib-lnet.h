@@ -77,6 +77,10 @@ extern struct lnet the_lnet;			/* THE network */
 /** exclusive lock */
 #define LNET_LOCK_EX		CFS_PERCPT_LOCK_EX
 
+/* need both kernel and user-land acceptor */
+#define LNET_ACCEPTOR_MIN_RESERVED_PORT	512
+#define LNET_ACCEPTOR_MAX_RESERVED_PORT	1023
+
 /* default timeout and credits */
 #define DEFAULT_PEER_TIMEOUT    180
 #define DEFAULT_PEER_CREDITS    8
@@ -642,8 +646,6 @@ struct lnet_ni *lnet_get_next_ni_locked(struct lnet_net *mynet,
 struct lnet_ni *lnet_get_ni_idx_locked(int idx);
 int lnet_get_net_healthv_locked(struct lnet_net *net);
 
-extern int libcfs_ioctl_getdata(struct libcfs_ioctl_hdr **hdr_pp,
-				struct libcfs_ioctl_hdr __user *uparam);
 extern int lnet_get_peer_list(__u32 *countp, __u32 *sizep,
 			      struct lnet_process_id __user *ids);
 extern void lnet_peer_ni_set_healthv(lnet_nid_t nid, int value, bool all);
@@ -1245,4 +1247,14 @@ lnet_set_route_aliveness(struct lnet_route *route, bool alive)
 		       old ? "up" : "down",
 		       alive ? "up" : "down");
 }
+void lnet_update_ping_buffer(void);
+
+extern struct blocking_notifier_head lnet_ioctl_list;
+static inline int notifier_from_ioctl_errno(int err)
+{
+	if (err == -EINVAL)
+		return NOTIFY_OK;
+	return notifier_from_errno(err) | NOTIFY_STOP_MASK;
+}
+
 #endif

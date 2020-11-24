@@ -4576,7 +4576,7 @@ LNetCtl(unsigned int cmd, void *arg)
 			rc = ni->ni_net->net_lnd->lnd_ctl(ni, cmd, arg);
 
 		lnet_ni_decref(ni);
-		return rc;
+		return rc <= 0 ? rc : 0;
 	}
 	/* not reached */
 }

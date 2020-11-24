@@ -67,19 +67,7 @@
 
 typedef s32 timeout_t;
 
-/* need both kernel and user-land acceptor */
-#define LNET_ACCEPTOR_MIN_RESERVED_PORT    512
-#define LNET_ACCEPTOR_MAX_RESERVED_PORT    1023
-
-extern struct blocking_notifier_head libcfs_ioctl_list;
-static inline int notifier_from_ioctl_errno(int err)
-{
-	if (err == -EINVAL)
-		return NOTIFY_OK;
-	return notifier_from_errno(err) | NOTIFY_STOP_MASK;
-}
-
-int libcfs_ioctl_data_adjust(struct libcfs_ioctl_data *data);
+int libcfs_ioctl(unsigned int cmd, struct libcfs_ioctl_data *data);
 
 extern struct workqueue_struct *cfs_rehash_wq;
 
