@@ -126,17 +126,20 @@ resetquota() {
 quota_scan() {
 	local local_ugp=$1
 	local local_id=$2
+	local count
 
 	if [ "$local_ugp" == "a" -o "$local_ugp" == "u" ]; then
 		$LFS quota -v -u $local_id $DIR
-		log "Files for user ($local_id):"
+		count=$($LFS find --user $local_id $DIR | wc -l)
+		log "Files for user ($local_id), count=$count:"
 		($LFS find --user $local_id $DIR | head -n 4 |
 			xargs stat 2>/dev/null)
 	fi
 
 	if [ "$local_ugp" == "a" -o "$local_ugp" == "g" ]; then
 		$LFS quota -v -g $local_id $DIR
-		log "Files for group ($local_id):"
+		count=$($LFS find --group $local_id $DIR | wc -l)
+		log "Files for group ($local_id), count=$count:"
 		($LFS find --group $local_id $DIR | head -n 4 |
 			xargs stat 2>/dev/null)
 	fi
@@ -144,7 +147,8 @@ quota_scan() {
 	is_project_quota_supported || return 0
 	if [ "$local_ugp" == "a" -o "$local_ugp" == "p" ]; then
 		$LFS quota -v -p $TSTPRJID $DIR
-		log "Files for project ($TSTPRJID):"
+		count=$($LFS find --projid $TSTPRJID $DIR | wc -l)
+		log "Files for project ($TSTPRJID), count=$count:"
 		($LFS find --projid $TSTPRJID $DIR | head -n 4 |
 			xargs stat 2>/dev/null)
 	fi
