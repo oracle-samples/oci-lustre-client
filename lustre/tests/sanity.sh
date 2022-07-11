@@ -48,7 +48,6 @@ always_except LU-18032 119i
 if $SHARED_KEY; then
 	# bug number:    LU-14181 LU-14181
 	ALWAYS_EXCEPT+=" 64e      64f"
-	always_except LU-15910 413g
 fi
 
 selinux_status=$(getenforce)
