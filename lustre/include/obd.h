@@ -126,8 +126,7 @@ struct brw_page {
 	u16		 bp_off_diff;
 	/* used for encryption: difference with count in clear text page */
 	u16		 bp_count_diff;
-	u32		 bp_padding;
-};
+} __attribute__((packed));
 
 struct timeout_item {
 	enum timeout_event ti_event;
