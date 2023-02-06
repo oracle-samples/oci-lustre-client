@@ -1153,6 +1153,7 @@ void cl_sync_io_init_notify(struct cl_sync_io *anchor, int nr,
 	memset(anchor, 0, sizeof(*anchor));
 	init_waitqueue_head(&anchor->csi_waitq);
 	atomic_set(&anchor->csi_sync_nr, nr);
+	atomic_set(&anchor->csi_complete, 0);
 	anchor->csi_sync_rc = 0;
 	anchor->csi_end_io = end;
 	anchor->csi_dio_aio = dio_aio;
@@ -1174,21 +1175,22 @@ int cl_sync_io_wait(const struct lu_env *env, struct cl_sync_io *anchor,
 
 	if (timeout > 0 &&
 	    wait_event_idle_timeout(anchor->csi_waitq,
-				    atomic_read(&anchor->csi_sync_nr) == 0,
+				    atomic_read(&anchor->csi_complete) == 1,
 				    cfs_time_seconds(timeout)) == 0) {
 		rc = -ETIMEDOUT;
 		CERROR("IO failed: %d, still wait for %d remaining entries\n",
-		       rc, atomic_read(&anchor->csi_sync_nr));
+		       rc, atomic_read(&anchor->csi_complete));
 	}
 
 	wait_event_idle(anchor->csi_waitq,
-			atomic_read(&anchor->csi_sync_nr) == 0);
+			atomic_read(&anchor->csi_complete) == 1);
 	if (!rc)
 		rc = anchor->csi_sync_rc;
 
 	/* We take the lock to ensure that cl_sync_io_note() has finished */
 	spin_lock(&anchor->csi_waitq.lock);
 	LASSERT(atomic_read(&anchor->csi_sync_nr) == 0);
+	LASSERT(atomic_read(&anchor->csi_complete) == 1);
 	spin_unlock(&anchor->csi_waitq.lock);
 
 	RETURN(rc);
@@ -1381,6 +1383,7 @@ void cl_sync_io_note(const struct lu_env *env, struct cl_sync_io *anchor,
 	 * IO.
 	 */
 	LASSERT(atomic_read(&anchor->csi_sync_nr) > 0);
+	LASSERT(atomic_read(&anchor->csi_complete) == 0);
 	if (atomic_dec_and_lock(&anchor->csi_sync_nr,
 				&anchor->csi_waitq.lock)) {
 		struct cl_sub_dio *sub_dio_aio = NULL;
@@ -1390,6 +1393,19 @@ void cl_sync_io_note(const struct lu_env *env, struct cl_sync_io *anchor,
 
 		cl_sync_io_end_t *end_io = anchor->csi_end_io;
 
+		spin_unlock(&anchor->csi_waitq.lock);
+		/* we cannot do end_io while holding a spin lock, because
+		 * end_io may sleep
+		 */
+		if (end_io)
+			end_io(env, anchor);
+
+		spin_lock(&anchor->csi_waitq.lock);
+		/* this tells the waiters we've completed, and can only be set
+		 * after end_io() has been called and while we're holding the
+		 * spinlock
+		 */
+		atomic_set(&anchor->csi_complete, 1);
 		/*
 		 * Holding the lock across both the decrement and
 		 * the wakeup ensures cl_sync_io_wait() doesn't complete
@@ -1399,8 +1415,6 @@ void cl_sync_io_note(const struct lu_env *env, struct cl_sync_io *anchor,
 		 * completes.
 		 */
 		wake_up_locked(&anchor->csi_waitq);
-		if (end_io)
-			end_io(env, anchor);
 
 		csi_dio_aio = anchor->csi_dio_aio;
 		sub_dio_aio = csi_dio_aio;
@@ -1447,6 +1461,8 @@ int cl_sync_io_wait_recycle(const struct lu_env *env, struct cl_sync_io *anchor,
 	 * reused we assume it as 1 before using.
 	 */
 	atomic_add(1, &anchor->csi_sync_nr);
+	/* we must also set this anchor as incomplete */
+	atomic_set(&anchor->csi_complete, 0);
 
 	return rc;
 }
