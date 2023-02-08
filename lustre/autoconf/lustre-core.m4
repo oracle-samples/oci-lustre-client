@@ -2927,6 +2927,151 @@ AC_DEFUN([LC_FSCRYPT_DUMMY_CONTEXT_ENABLED], [
 ]) # LC_FSCRYPT_DUMMY_CONTEXT_ENABLED
 
 #
+# LC_HAVE_KTHREAD_USE_MM
+#
+# kernel 5.8 commit f5678e7f2ac31c270334b936352f0ef2fe7dd2b3
+# kernel: better document the use_mm/unuse_mm API contract
+#
+AC_DEFUN([LC_SRC_HAVE_KTHREAD_USE_MM], [
+	LB2_LINUX_TEST_SRC([kthread_use_mm], [
+		#include <linux/kthread.h>
+	],[
+		kthread_use_mm(NULL);
+	])
+])
+AC_DEFUN([LC_HAVE_KTHREAD_USE_MM], [
+	AC_MSG_CHECKING([if have kthread_use_mm])
+	LB2_LINUX_TEST_RESULT([kthread_use_mm], [
+		AC_DEFINE(HAVE_KTHREAD_USE_MM, 1, ['kthread_use_mm' exists])
+	])
+]) # LC_HAVE_KTHREAD_USE_MM
+
+#
+# LC_FSCRYPT_FNAME_ALLOC_BUFFER
+#
+# Kernel 5.9-rc4 8b10fe68985278de4926daa56ad6af701839e40a
+# removed the inode parameter for the fscrypt function
+# fscrypt_fname_alloc_buffer()
+#
+AC_DEFUN([LC_SRC_FSCRYPT_FNAME_ALLOC_BUFFER], [
+	LB2_LINUX_TEST_SRC([fscrypt_fname_alloc_buffer], [
+		#include <linux/fscrypt.h>
+	],[
+		fscrypt_fname_alloc_buffer(0, NULL);
+	],[-Werror])
+])
+AC_DEFUN([LC_FSCRYPT_FNAME_ALLOC_BUFFER], [
+	AC_MSG_CHECKING([if fscrypt_fname_alloc_buffer() removed inode parameter])
+	LB2_LINUX_TEST_RESULT([fscrypt_fname_alloc_buffer], [
+	AC_DEFINE(HAVE_FSCRYPT_FNAME_ALLOC_BUFFER_NO_INODE, 1,
+		[fscrypt_fname_alloc_buffer() does not have inode parameter])
+	])
+]) # LC_FSCRYPT_FNAME_ALLOC_BUFFER
+
+#
+# LC_FSCRYPT_SET_CONTEXT
+#
+# Kernel 5.9-rc4 a992b20cd4ee360dbbe6f69339cb07146e4304d6
+# fscrypt_get_encryption_info() is not GFP_NOFS safe which
+# is used by fscrypt_inherit_context. Replace fscrypt_inherit_context,
+# with two new functions, fscrypt_prepare_new_inode() and
+# fscrypt_set_context()
+#
+AC_DEFUN([LC_SRC_FSCRYPT_SET_CONTEXT], [
+	LB2_LINUX_TEST_SRC([fscrypt_set_context], [
+		#include <linux/fscrypt.h>
+	],[
+		fscrypt_set_context(NULL, NULL);
+		fscrypt_prepare_new_inode(NULL, NULL, NULL);
+	])
+])
+AC_DEFUN([LC_FSCRYPT_SET_CONTEXT], [
+	AC_MSG_CHECKING([if 'fscrypt_set_context()' exists])
+	LB2_LINUX_TEST_RESULT([fscrypt_set_context], [
+		AC_DEFINE(HAVE_FSCRYPT_SET_CONTEXT, 1,
+			[fscrypt_set_context() does exist])
+	])
+]) # LC_FSCRYPT_SET_CONTEXT
+
+#
+# LC_FSCRYPT_D_REVALIDATE
+#
+# kernel 5.9-rc4 5b2a828b98ec1872799b1b4d82113c76a12d594f
+# exported fscrypt_d_revalidate()
+#
+AC_DEFUN([LC_FSCRYPT_D_REVALIDATE], [
+LB_CHECK_EXPORT([fscrypt_d_revalidate], [fs/crypto/fname.c],
+	[AC_DEFINE(HAVE_FSCRYPT_D_REVALIDATE, 1,
+		   [fscrypt_d_revalidate() is exported by the kernel])])
+]) # LC_FSCRYPT_D_REVALIDATE
+
+#
+# LC_FSCRYPT_NOKEY_NAME
+#
+# kernel 5.9-rc4 70fb2612aab62d47e03f82eaa7384a8d30ca175d
+# renamed is_ciphertext_name to is_nokey_name
+#
+AC_DEFUN([LC_SRC_FSCRYPT_NOKEY_NAME], [
+	LB2_LINUX_TEST_SRC([fname_is_nokey_name], [
+		#include <linux/fscrypt.h>
+	],[
+		struct fscrypt_name fname;
+
+		fname.is_nokey_name = true;
+	],[-Werror])
+])
+AC_DEFUN([LC_FSCRYPT_NOKEY_NAME], [
+	AC_MSG_CHECKING([if struct fscrypt_name has is_nokey_name field])
+	LB2_LINUX_TEST_RESULT([fname_is_nokey_name], [
+		AC_DEFINE(HAVE_FSCRYPT_NOKEY_NAME, 1,
+			[struct fscrypt_name has is_nokey_name field])
+	])
+]) # LC_FSCRYPT_NOKEY_NAME
+
+#
+# LC_FSCRYPT_SET_TEST_DUMMY_ENC_CHAR_ARG
+# Kernel 5.9-rc4 c8c868abc91ff23f6f5c4444c419de7c277d77e1
+# changed fscrypt_set_test_dummy_encryption() take a 'const char *
+#
+AC_DEFUN([LC_SRC_FSCRYPT_SET_TEST_DUMMY_ENC_CHAR_ARG], [
+	LB2_LINUX_TEST_SRC([fscrypt_set_test_dummy_encryption], [
+		#include <linux/fscrypt.h>
+	],[
+		char *arg = "arg";
+		fscrypt_set_test_dummy_encryption(NULL, arg, NULL);
+	],[-Werror])
+])
+AC_DEFUN([LC_FSCRYPT_SET_TEST_DUMMY_ENC_CHAR_ARG], [
+	AC_MSG_CHECKING([if fscrypt_set_test_dummy_encryption() take 'const char' parameter])
+	LB2_LINUX_TEST_RESULT([fscrypt_set_test_dummy_encryption], [
+		AC_DEFINE(HAVE_FSCRYPT_SET_TEST_DUMMY_ENC_CHAR_ARG, 1,
+			[fscrypt_set_test_dummy_encryption() take 'const char' parameter])
+	])
+]) # LC_FSCRYPT_SET_TEST_DUMMY_ENC_CHAR_ARG
+
+#
+# LC_FSCRYPT_DUMMY_POLICY
+#
+# Kernel 5.9-rc4 ac4acb1f4b2b6b7e8d913537cccec8789903e164
+# move the test dummy context for fscrypt_policy which is
+# also used by the user land interface.
+#
+AC_DEFUN([LC_SRC_FSCRYPT_DUMMY_POLICY], [
+	LB2_LINUX_TEST_SRC([fscrypt_free_dummy_policy], [
+		#include <linux/fscrypt.h>
+	],[
+		fscrypt_free_dummy_policy(NULL);
+	],[-Werror])
+])
+AC_DEFUN([LC_FSCRYPT_DUMMY_POLICY], [
+	AC_MSG_CHECKING([if fscrypt_free_dummy_policy() exists])
+	LB2_LINUX_TEST_RESULT([fscrypt_free_dummy_policy], [
+		AC_DEFINE(HAVE_FSCRYPT_DUMMY_POLICY, 1,
+			[fscrypt_free_dummy_policy() exists])
+	])
+]) # LC_FSCRYPT_DUMMY_POLICY
+
+#
 # LC_HAVE_ITER_FILE_SPLICE_WRITE
 #
 # Linux commit v5.9-rc1-6-g36e2c7421f02
@@ -4324,6 +4469,9 @@ AC_DEFUN([LC_PROG_LINUX_SRC], [
 	# 5.7
 	LC_SRC_FSCRYPT_DUMMY_CONTEXT_ENABLED
 
+	# 5.8
+	LC_SRC_HAVE_KTHREAD_USE_MM
+
 	# 5.9
 	LC_SRC_HAVE_ITER_FILE_SPLICE_WRITE
 
@@ -4601,6 +4749,9 @@ AC_DEFUN([LC_PROG_LINUX_RESULTS], [
 
 	# 5.7
 	LC_FSCRYPT_DUMMY_CONTEXT_ENABLED
+
+	# 5.8
+	LC_HAVE_KTHREAD_USE_MM
 
 	# 5.9
 	LC_HAVE_ITER_FILE_SPLICE_WRITE
