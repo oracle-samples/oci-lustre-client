@@ -692,6 +692,12 @@ struct fsxattr {
  * for access to encrypted files without the encryption key.
  */
 #define O_FILE_ENC		(O_NOCTTY | O_NDELAY)
+#ifndef O_CIPHERTEXT
+/* O_CIPHERTEXT principle is similar to O_LOV_DELAY_CREATE above,
+ * for access to encrypted files without the encryption key.
+ */
+#define O_CIPHERTEXT		(O_NOCTTY | O_NDELAY | O_DSYNC)
+#endif
 
 #define LL_FILE_IGNORE_LOCK     0x00000001
 #define LL_FILE_GROUP_LOCKED    0x00000002

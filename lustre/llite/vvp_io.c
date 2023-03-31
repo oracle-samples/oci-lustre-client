@@ -575,12 +575,16 @@ static int vvp_io_rw_lock(const struct lu_env *env, struct cl_io *io,
 	if (io->ci_lock_no_expand)
 		ast_flags |= CEF_LOCK_NO_EXPAND;
 	if (vio->vui_fd) {
+		int flags;
+
 		/* Group lock held means no lockless any more */
 		if (vio->vui_fd->fd_flags & LL_FILE_GROUP_LOCKED)
 			io->ci_dio_lock = 1;
 
+		flags = iocb_ki_flags_get(vio->vui_iocb->ki_filp,
+					  vio->vui_iocb);
 		if (ll_file_nolock(vio->vui_fd->fd_file) ||
-		    (vio->vui_fd->fd_file->f_flags & O_DIRECT &&
+		    (iocb_ki_flags_check(flags, DIRECT) &&
 		     !io->ci_dio_lock))
 			ast_flags |= CEF_NEVER;
 	}
@@ -826,6 +830,7 @@ static int vvp_io_read_start(const struct lu_env *env,
 	int total_bytes_read = 0;
 	struct iov_iter iter;
 	pgoff_t page_offset;
+	int flags;
 
 	ENTRY;
 
@@ -845,7 +850,8 @@ static int vvp_io_read_start(const struct lu_env *env,
 	if (!can_populate_pages(env, io, inode))
 		RETURN(0);
 
-	if (!(file->f_flags & O_DIRECT)) {
+	flags = iocb_ki_flags_get(file, vio->vui_iocb);
+	if (!iocb_ki_flags_check(flags, DIRECT)) {
 		result = cl_io_lru_reserve(env, io, pos, cnt);
 		if (result)
 			RETURN(result);
@@ -1284,19 +1290,20 @@ int vvp_io_write_commit(const struct lu_env *env, struct cl_io *io)
 static int vvp_io_write_start(const struct lu_env *env,
                               const struct cl_io_slice *ios)
 {
-	struct vvp_io		*vio   = cl2vvp_io(env, ios);
-	struct cl_io		*io    = ios->cis_io;
-	struct cl_object	*obj   = io->ci_obj;
-	struct inode		*inode = vvp_object_inode(obj);
-	struct ll_inode_info	*lli   = ll_i2info(inode);
-	struct file		*file  = vio->vui_fd->fd_file;
-	ssize_t			 result = 0;
-	loff_t			 pos = io->u.ci_wr.wr.crw_pos;
-	size_t			 cnt = io->u.ci_wr.wr.crw_count;
-	bool			 lock_inode = !IS_NOSEC(inode);
+	struct vvp_io *vio = cl2vvp_io(env, ios);
+	struct cl_io *io = ios->cis_io;
+	struct cl_object *obj = io->ci_obj;
+	struct inode *inode = vvp_object_inode(obj);
+	struct ll_inode_info *lli = ll_i2info(inode);
+	struct file	*file  = vio->vui_fd->fd_file;
+	ssize_t result = 0;
+	loff_t pos = io->u.ci_wr.wr.crw_pos;
+	size_t cnt  = io->u.ci_wr.wr.crw_count;
+	bool lock_inode = !IS_NOSEC(inode);
 	size_t nob = io->ci_nob;
 	struct iov_iter iter;
 	size_t written = 0;
+	int flags;
 
 	ENTRY;
 
@@ -1344,7 +1351,8 @@ static int vvp_io_write_start(const struct lu_env *env,
 	if (OBD_FAIL_CHECK(OBD_FAIL_LLITE_IMUTEX_NOSEC) && lock_inode)
 		RETURN(-EINVAL);
 
-	if (!(file->f_flags & O_DIRECT)) {
+	flags = iocb_ki_flags_get(file, vio->vui_iocb);
+	if (!iocb_ki_flags_check(flags, DIRECT)) {
 		result = cl_io_lru_reserve(env, io, pos, cnt);
 		if (result)
 			RETURN(result);
