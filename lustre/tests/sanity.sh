@@ -12811,32 +12811,167 @@ test_119c() # bug 13099
 }
 run_test 119c "Testing for direct read hitting hole"
 
-test_119d() # bug 15950
-{
-	[ $PARALLEL == "yes" ] && skip "skip parallel run"
+# Note: test 119d was removed, skipping 119d for new tests to avoid polluting
+# Maloo test history
 
-        MAX_RPCS_IN_FLIGHT=`$LCTL get_param -n osc.*OST0000-osc-[^mM]*.max_rpcs_in_flight`
-        $LCTL set_param -n osc.*OST0000-osc-[^mM]*.max_rpcs_in_flight 1
-        BSIZE=1048576
-        $LFS setstripe $DIR/$tfile -i 0 -c 1 || error "setstripe failed"
-        $DIRECTIO write $DIR/$tfile 0 1 $BSIZE || error "first directio failed"
-        #define OBD_FAIL_OSC_DIO_PAUSE           0x40d
-        lctl set_param fail_loc=0x40d
-        $DIRECTIO write $DIR/$tfile 1 4 $BSIZE &
-        pid_dio=$!
-        sleep 1
-        cat $DIR/$tfile > /dev/null &
-        lctl set_param fail_loc=0
-        pid_reads=$!
-        wait $pid_dio
-        log "the DIO writes have completed, now wait for the reads (should not block very long)"
-        sleep 2
-        [ -n "`ps h -p $pid_reads -o comm`" ] && \
-        error "the read rpcs have not completed in 2s"
-        rm -f $DIR/$tfile
-        $LCTL set_param -n osc.*OST0000-osc-[^mM]*.max_rpcs_in_flight $MAX_RPCS_IN_FLIGHT
+test_119e()
+{
+	(( $OSTCOUNT >= 2 )) || skip "needs >= 2 OSTs"
+
+	local stripe_size=$((1024 * 1024)) #1 MiB
+	# Max i/o below is ~ 4 * stripe_size, so this gives ~5 i/os
+	local file_size=$((25 * stripe_size))
+	local bsizes
+
+	$LFS setstripe -c 2 -S $stripe_size $DIR/$tfile.1
+	stack_trap "rm -f $DIR/$tfile*"
+
+	# Just a bit bigger than the largest size in the test set below
+	dd if=/dev/urandom bs=$file_size count=1 of=$DIR/$tfile.1 ||
+		error "buffered i/o to create file failed"
+
+	if zfs_or_rotational; then
+		# DIO on ZFS can take up to 2 seconds per IO
+		# rotational is better, but still slow.
+		# Limit testing on those media to larger sizes
+		bsizes="$((stripe_size - PAGE_SIZE)) $stripe_size"
+	else
+		bsizes="$PAGE_SIZE $((PAGE_SIZE * 4)) $stripe_size \
+			$((stripe_size * 4))"
+	fi
+
+	for bs in $bsizes; do
+		$LFS setstripe -c 2 -S $stripe_size $DIR/$tfile.2
+		echo "Read/write with DIO at size $bs"
+		# Read and write with DIO from source to dest
+		dd if=$DIR/$tfile.1 bs=$bs of=$DIR/$tfile.2 \
+			iflag=direct oflag=direct ||
+			error "dio failed"
+
+		ls -la $DIR/$tfile.1 $DIR/$tfile.2
+		$CHECKSTAT -t file -s $file_size $DIR/$tfile.2 ||
+			error "size incorrect, file copy read/write bsize: $bs"
+		cmp --verbose $DIR/$tfile.1 $DIR/$tfile.2 ||
+			error "files differ, bsize $bs"
+		rm -f $DIR/$tfile.2
+	done
 }
-run_test 119d "The DIO path should try to send a new rpc once one is completed"
+run_test 119e "Basic tests of dio read and write at various sizes"
+
+test_119f()
+{
+	(( $OSTCOUNT >= 2 )) || skip "needs >= 2 OSTs"
+
+	local stripe_size=$((1024 * 1024)) #1 MiB
+	# Max i/o below is ~ 4 * stripe_size, so this gives ~5 i/os
+	local file_size=$((25 * stripe_size))
+	local bsizes
+
+	$LFS setstripe -c 2 -S $stripe_size $DIR/$tfile.1
+	stack_trap "rm -f $DIR/$tfile*"
+
+	# Just a bit bigger than the largest size in the test set below
+	dd if=/dev/urandom bs=$file_size count=1 of=$DIR/$tfile.1 ||
+		error "buffered i/o to create file failed"
+
+	if zfs_or_rotational; then
+		# DIO on ZFS can take up to 2 seconds per IO
+		# rotational is better, but still slow.
+		# Limit testing on those media to larger sizes
+		bsizes="$((stripe_size - PAGE_SIZE)) $stripe_size"
+	else
+		bsizes="$PAGE_SIZE $((PAGE_SIZE * 4)) $stripe_size \
+			$((stripe_size * 4))"
+	fi
+
+	for bs in $bsizes; do
+		$LFS setstripe -c 2 -S $stripe_size $DIR/$tfile.2
+		# Read and write with DIO from source to dest in two
+		# threads - should give correct copy of file
+
+		echo "bs: $bs"
+		dd if=$DIR/$tfile.1 bs=$bs of=$DIR/$tfile.2 iflag=direct \
+			oflag=direct conv=notrunc &
+		pid_dio1=$!
+		# Note block size is different here for a more interesting race
+		dd if=$DIR/$tfile.1 bs=$((bs * 2)) of=$DIR/$tfile.2 \
+			iflag=direct oflag=direct conv=notrunc &
+		pid_dio2=$!
+		wait $pid_dio1
+		rc1=$?
+		wait $pid_dio2
+		rc2=$?
+		if (( rc1 != 0 )); then
+			error "dio copy 1 w/bsize $bs failed: $rc1"
+		fi
+		if (( rc2 != 0 )); then
+			error "dio copy 2 w/bsize $bs failed: $rc2"
+		fi
+
+
+		$CHECKSTAT -t file -s $file_size $DIR/$tfile.2 ||
+			error "size incorrect, file copy read/write bsize: $bs"
+		cmp --verbose $DIR/$tfile.1 $DIR/$tfile.2 ||
+			error "files differ, bsize $bs"
+		rm -f $DIR/$tfile.2
+	done
+}
+run_test 119f "dio vs dio race"
+
+test_119g()
+{
+	(( $OSTCOUNT >= 2 )) || skip "needs >= 2 OSTs"
+
+	local stripe_size=$((1024 * 1024)) #1 MiB
+	# Max i/o below is ~ 4 * stripe_size, so this gives ~5 i/os
+	local file_size=$((25 * stripe_size))
+	local bsizes
+
+	$LFS setstripe -c 2 -S $stripe_size $DIR/$tfile.1
+	stack_trap "rm -f $DIR/$tfile*"
+
+	# Just a bit bigger than the largest size in the test set below
+	dd if=/dev/urandom bs=$file_size count=1 of=$DIR/$tfile.1 ||
+		error "buffered i/o to create file failed"
+
+	if zfs_or_rotational; then
+		# DIO on ZFS can take up to 2 seconds per IO
+		# rotational is better, but still slow.
+		# Limit testing on those media to larger sizes
+		bsizes="$((stripe_size - PAGE_SIZE)) $stripe_size"
+	else
+		bsizes="$PAGE_SIZE $((PAGE_SIZE * 4)) $stripe_size \
+			$((stripe_size * 4))"
+	fi
+
+	for bs in $bsizes; do
+		$LFS setstripe -c 2 -S $stripe_size $DIR/$tfile.2
+		echo "bs: $bs"
+		dd if=$DIR/$tfile.1 bs=$bs of=$DIR/$tfile.2 iflag=direct \
+			oflag=direct conv=notrunc &
+		pid_dio1=$!
+		# Buffered I/O with similar but not the same block size
+		dd if=$DIR/$tfile.1 bs=$((bs * 2)) of=$DIR/$tfile.2 &
+		pid_bio2=$!
+		wait $pid_dio1
+		rc1=$?
+		wait $pid_bio2
+		rc2=$?
+		if (( rc1 != 0 )); then
+			error "dio copy 1 w/bsize $bs failed: $rc1"
+		fi
+		if (( rc2 != 0 )); then
+			error "buffered copy 2 w/bsize $bs failed: $rc2"
+		fi
+
+		$CHECKSTAT -t file -s $file_size $DIR/$tfile.2 ||
+			error "size incorrect"
+		cmp --verbose $DIR/$tfile.1 $DIR/$tfile.2 ||
+			error "files differ, bsize $bs"
+		rm -f $DIR/$tfile.2
+	done
+}
+run_test 119g "dio vs buffered I/O race"
 
 test_120a() {
 	[ $PARALLEL == "yes" ] && skip "skip parallel run"
@@ -25098,6 +25233,53 @@ test_398p()
 	done
 }
 run_test 398p "race aio with buffered i/o"
+
+test_398q()
+{
+	(( $OSTCOUNT >= 2 )) || skip "needs >= 2 OSTs"
+
+	local stripe_size=$((1024 * 1024)) #1 MiB
+	# Max i/o below is ~ 4 * stripe_size, so this gives ~5 i/os
+	local file_size=$((25 * stripe_size))
+
+	$LFS setstripe -c 2 -S $stripe_size $DIR/$tfile.1
+	$LFS setstripe -c 2 -S $stripe_size $DIR/$tfile.2
+
+	# Just a bit bigger than the largest size in the test set below
+	dd if=/dev/urandom bs=$file_size count=1 of=$DIR/$tfile.1 ||
+		error "buffered i/o to create file failed"
+
+	for bs in $PAGE_SIZE $((PAGE_SIZE * 4)) $stripe_size \
+		$((stripe_size * 4)); do
+
+		echo "bs: $bs, file_size $file_size"
+		dd if=$DIR/$tfile.1 bs=$((bs *2 )) of=$DIR/tfile.2 \
+			conv=notrunc oflag=direct iflag=direct &
+		pid_dio1=$!
+		# Buffered I/O with similar but not the same block size
+		dd if=$DIR/$tfile.1 bs=$((bs * 2)) of=$DIR/$tfile.2 \
+			conv=notrunc &
+		pid_bio2=$!
+		wait $pid_dio1
+		rc1=$?
+		wait $pid_bio2
+		rc2=$?
+		if (( rc1 != 0 )); then
+			error "dio copy 1 w/bsize $bs failed: $rc1"
+		fi
+		if (( rc2 != 0 )); then
+			error "buffered copy 2 w/bsize $bs failed: $rc2"
+		fi
+
+		$CHECKSTAT -t file -s $file_size $DIR/$tfile.2 ||
+			error "size incorrect"
+		diff $DIR/$tfile.1 $DIR/$tfile.2 ||
+			error "files differ, bsize $bs"
+	done
+
+	rm -f $DIR/$tfile*
+}
+run_test 398q "race dio with buffered i/o"
 
 test_fake_rw() {
 	local read_write=$1

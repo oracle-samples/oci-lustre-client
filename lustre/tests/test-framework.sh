@@ -10996,3 +10996,15 @@ verify_yaml_available() {
 verify_yaml() {
 	python3 -c "import yaml; yaml.safe_load_all('''$1''')"
 }
+
+zfs_or_rotational() {
+	local ost_idx=0
+	local ost_name=$(ostname_from_index $ost_idx)
+	local nonrotat=$(do_facet ost1 $LCTL get_param -n osd-*.$ost_name.nonrotational)
+
+	if [ "$ost1_FSTYPE" == "zfs" ] || [ "$nonrotat" -eq 0 ]; then
+		return 0
+	else
+		return 1
+	fi
+}
