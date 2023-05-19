@@ -1918,25 +1918,6 @@ ksocknal_free_buffers (void)
 	}
 }
 
-static int ksocknal_get_link_status(struct net_device *dev)
-{
-	int ret = -1;
-
-	LASSERT(dev);
-
-	if (!netif_running(dev)) {
-		ret = 0;
-		CDEBUG(D_NET, "device not running\n");
-	}
-	/* Some devices may not be providing link settings */
-	else if (dev->ethtool_ops->get_link) {
-		ret = dev->ethtool_ops->get_link(dev);
-		CDEBUG(D_NET, "get_link returns %u\n", ret);
-	}
-
-	return ret;
-}
-
 static int
 ksocknal_handle_link_state_change(struct net_device *dev,
 				  unsigned char operstate)

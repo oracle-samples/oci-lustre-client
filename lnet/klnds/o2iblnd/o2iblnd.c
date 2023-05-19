@@ -2639,21 +2639,6 @@ kiblnd_dummy_callback(struct rdma_cm_id *cmid, struct rdma_cm_event *event)
         return 0;
 }
 
-static int kiblnd_get_link_status(struct net_device *dev)
-{
-	int ret = -1;
-
-	LASSERT(dev);
-
-	if (!netif_running(dev))
-		ret = 0;
-	/* Some devices may not be providing link settings */
-	else if (dev->ethtool_ops->get_link)
-		ret = dev->ethtool_ops->get_link(dev);
-
-	return ret;
-}
-
 static int
 kiblnd_dev_need_failover(struct kib_dev *dev, struct net *ns)
 {
