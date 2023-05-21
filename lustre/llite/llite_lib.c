@@ -185,6 +185,7 @@ static struct ll_sb_info *ll_init_sbi(void)
 	set_bit(LL_SBI_FAST_READ, sbi->ll_flags);
 	set_bit(LL_SBI_TINY_WRITE, sbi->ll_flags);
 	set_bit(LL_SBI_PARALLEL_DIO, sbi->ll_flags);
+	set_bit(LL_SBI_UNALIGNED_DIO, sbi->ll_flags);
 	ll_sbi_set_encrypt(sbi, true);
 	ll_sbi_set_name_encrypt(sbi, true);
 
@@ -982,6 +983,7 @@ static const match_table_t ll_sbi_flags_name = {
 	{LL_SBI_FILE_HEAT,		"file_heat"},
 	{LL_SBI_PARALLEL_DIO,		"parallel_dio"},
 	{LL_SBI_ENCRYPT_NAME,		"name_encrypt"},
+	{LL_SBI_UNALIGNED_DIO,		"unaligned_dio"},
 };
 
 int ll_sbi_flags_seq_show(struct seq_file *m, void *v)
