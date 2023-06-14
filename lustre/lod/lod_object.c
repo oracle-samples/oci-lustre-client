@@ -5524,8 +5524,9 @@ static void lod_striping_from_default(struct lod_object *lo,
 			struct lod_layout_component *def_comp =
 						&lds->lds_def_comp_entries[i];
 
-			CDEBUG(D_LAYOUT, "Inherit from default: flags=%#x "
-			       "size=%hu nr=%u offset=%u pattern=%#x pool=%s\n",
+			CDEBUG(D_LAYOUT,
+			       "inherit "DFID" file layout from default: flags=%#x size=%u nr=%u offset=%u pattern=%#x pool=%s\n",
+			       PFID(lu_object_fid(&lo->ldo_obj.do_lu)),
 			       def_comp->llc_flags,
 			       def_comp->llc_stripe_size,
 			       def_comp->llc_stripe_count,

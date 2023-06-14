@@ -942,8 +942,6 @@ static int osp_precreate_cleanup_orphans(struct lu_env *env,
 	 * This empties the pre-creation pool and effectively blocks any new
 	 * reservations.
 	 */
-	LASSERT(fid_oid(&d->opd_pre_last_created_fid) <=
-		LUSTRE_DATA_SEQ_MAX_WIDTH);
 	d->opd_pre_used_fid = d->opd_pre_last_created_fid;
 	d->opd_pre_create_slow = 0;
 	spin_unlock(&d->opd_pre_lock);

@@ -266,6 +266,7 @@ static struct config_llog_data *config_recover_log_add(struct obd_device *obd,
 	struct config_llog_instance lcfg = *cfg;
 	struct lustre_sb_info *lsi = s2lsi(sb);
 	struct config_llog_data *cld;
+	bool is_server = IS_SERVER(s2lsi(sb));
 	char logname[32];
 
 	if (IS_OST(lsi))
@@ -280,14 +281,12 @@ static struct config_llog_data *config_recover_log_add(struct obd_device *obd,
 	 */
 	LASSERT(strlen(fsname) < sizeof(logname) / 2);
 	strncpy(logname, fsname, sizeof(logname));
-	if (IS_SERVER(lsi)) { /* mdt */
-		LASSERT(lcfg.cfg_instance == 0);
+
+	LASSERT(is_server ? lcfg.cfg_instance == 0 : lcfg.cfg_instance != 0);
+	if (is_server)
 		lcfg.cfg_instance = ll_get_cfg_instance(sb);
-		strncat(logname, "-mdtir", sizeof(logname));
-	} else {
-		LASSERT(lcfg.cfg_instance != 0);
-		strncat(logname, "-cliir", sizeof(logname));
-	}
+	scnprintf(logname, sizeof(logname), "%s-%s", fsname,
+		  is_server ? "mdtir" : "cliir");
 
 	cld = do_config_log_add(obd, logname, MGS_CFG_T_RECOVER, &lcfg, sb);
 	return cld;
