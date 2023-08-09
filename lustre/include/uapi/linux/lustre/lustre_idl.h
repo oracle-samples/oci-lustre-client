@@ -827,37 +827,44 @@ struct ptlrpc_body_v2 {
 #define OBD_CONNECT_OBDOPACK	 0x4000000000000000ULL /* compact OUT obdo */
 #define OBD_CONNECT_FLAGS2	 0x8000000000000000ULL /* second flags word */
 /* ocd_connect_flags2 flags */
-#define OBD_CONNECT2_FILE_SECCTX	 0x1ULL /* set file security context at create */
-#define OBD_CONNECT2_LOCKAHEAD		 0x2ULL /* ladvise lockahead v2 */
-#define OBD_CONNECT2_DIR_MIGRATE	 0x4ULL /* migrate striped dir */
-#define OBD_CONNECT2_SUM_STATFS		0x8ULL /* MDT return aggregated stats */
-#define OBD_CONNECT2_OVERSTRIPING	0x10ULL /* OST overstriping support */
-#define OBD_CONNECT2_FLR		0x20ULL /* FLR support */
-#define OBD_CONNECT2_WBC_INTENTS	0x40ULL /* create/unlink/... intents for wbc, also operations under client-held parent locks */
-#define OBD_CONNECT2_LOCK_CONVERT	0x80ULL /* IBITS lock convert support */
-#define OBD_CONNECT2_ARCHIVE_ID_ARRAY	0x100ULL /* store HSM archive_id in array */
-#define OBD_CONNECT2_INC_XID		0x200ULL /* Increasing xid */
-#define OBD_CONNECT2_SELINUX_POLICY	0x400ULL /* has client SELinux policy */
-#define OBD_CONNECT2_LSOM		0x800ULL /* LSOM support */
-#define OBD_CONNECT2_PCC		0x1000ULL /* Persistent Client Cache */
-#define OBD_CONNECT2_CRUSH		0x2000ULL /* crush hash striped directory */
-#define OBD_CONNECT2_ASYNC_DISCARD	0x4000ULL /* support async DoM data discard */
-#define OBD_CONNECT2_ENCRYPT		0x8000ULL /* client-to-disk encrypt */
-#define OBD_CONNECT2_FIDMAP	       0x10000ULL /* FID map */
-#define OBD_CONNECT2_GETATTR_PFID      0x20000ULL /* pack parent FID in getattr */
-#define OBD_CONNECT2_LSEEK	       0x40000ULL /* SEEK_HOLE/DATA RPC */
-#define OBD_CONNECT2_DOM_LVB	       0x80000ULL /* pack DOM glimpse data in LVB */
-#define OBD_CONNECT2_REP_MBITS	      0x100000ULL /* match reply mbits not xid*/
-#define OBD_CONNECT2_MODE_CONVERT     0x200000ULL /* LDLM mode convert */
-#define OBD_CONNECT2_BATCH_RPC        0x400000ULL /* Multi-RPC batch request */
-#define OBD_CONNECT2_PCCRO	      0x800000ULL /* Read-only PCC */
-#define OBD_CONNECT2_ATOMIC_OPEN_LOCK 0x4000000ULL/* request lock on 1st open */
-#define OBD_CONNECT2_ENCRYPT_NAME     0x8000000ULL /* name encrypt */
-/* XXX README XXX:
- * Please DO NOT add flag values here before first ensuring that this same
- * flag value is not in use on some other branch.  Please clear any such
- * changes with senior engineers before starting to use a new flag.  Then,
- * submit a small patch against EVERY branch that ONLY adds the new flag,
+#define OBD_CONNECT2_FILE_SECCTX		0x1ULL /* security context */
+#define OBD_CONNECT2_LOCKAHEAD			0x2ULL /* ladvise lockahead */
+#define OBD_CONNECT2_DIR_MIGRATE		0x4ULL /* migrate striped dir */
+#define OBD_CONNECT2_SUM_STATFS			0x8ULL /* MDT aggregate statfs*/
+#define OBD_CONNECT2_OVERSTRIPING	       0x10ULL /* OST overstriping */
+#define OBD_CONNECT2_FLR		       0x20ULL /* FLR mirror handling */
+#define OBD_CONNECT2_WBC_INTENTS	       0x40ULL /* MDS wb cache intent */
+#define OBD_CONNECT2_LOCK_CONVERT	       0x80ULL /* IBITS lock convert */
+#define OBD_CONNECT2_ARCHIVE_ID_ARRAY	      0x100ULL /* HSM archive_id array*/
+#define OBD_CONNECT2_INC_XID		      0x200ULL /* Increasing xid */
+#define OBD_CONNECT2_SELINUX_POLICY	      0x400ULL /* cli SELinux policy */
+#define OBD_CONNECT2_LSOM		      0x800ULL /* Lazy Size on MDT */
+#define OBD_CONNECT2_PCC		     0x1000ULL /* Persist Client Cache*/
+#define OBD_CONNECT2_CRUSH		     0x2000ULL /* CRUSH dir hash */
+#define OBD_CONNECT2_ASYNC_DISCARD	     0x4000ULL /* async DoM discard */
+#define OBD_CONNECT2_ENCRYPT		     0x8000ULL /* client disk encrypt */
+#define OBD_CONNECT2_FIDMAP		    0x10000ULL /* MDT migrate FID map */
+#define OBD_CONNECT2_GETATTR_PFID	    0x20000ULL /* parent FID getattr */
+#define OBD_CONNECT2_LSEEK		    0x40000ULL /* SEEK_HOLE/DATA RPC */
+#define OBD_CONNECT2_DOM_LVB		    0x80000ULL /* DoM glimpse in LVB */
+#define OBD_CONNECT2_REP_MBITS		   0x100000ULL /* reply mbits, not XID*/
+#define OBD_CONNECT2_MODE_CONVERT	   0x200000ULL /* LDLM mode convert */
+#define OBD_CONNECT2_BATCH_RPC		   0x400000ULL /* Multi-op batch RPCs */
+#define OBD_CONNECT2_PCCRO		   0x800000ULL /* PCC read-only */
+#define OBD_CONNECT2_MNE_TYPE		  0x1000000ULL /* mne_nid_type IPv6 */
+#define OBD_CONNECT2_LOCK_CONTENTION	  0x2000000ULL /* contention detect */
+#define OBD_CONNECT2_ATOMIC_OPEN_LOCK	  0x4000000ULL /* lock on first open */
+#define OBD_CONNECT2_ENCRYPT_NAME	  0x8000000ULL /* name encrypt */
+/* For MDS+OSS rolling upgrade interop with 2.16+older, ignored after 2.20.53 */
+#define OBD_CONNECT2_REPLAY_CREATE	 0x80000000ULL /* replay OST_CREATE */
+/* only ZFS servers require a change to support unaligned DIO, so this flag is
+ * ignored for ldiskfs servers */
+#define OBD_CONNECT2_UNALIGNED_DIO	0x400000000ULL /* unaligned DIO */
+/* XXX README XXX README XXX README XXX README XXX README XXX README XXX
+ * Please DO NOT add OBD_CONNECT flags before first ensuring that this value
+ * is not in use by some other branch/patch.  Email adilger@whamcloud.com
+ * to reserve the new OBD_CONNECT value for use by your feature. Then, submit
+ * a small patch against master and LTS branches that ONLY adds the new flag,
  * updates obd_connect_names[], adds the flag to check_obd_connect_data(),
  * and updates wiretests accordingly, so it can be approved and landed easily
  * to reserve the flag for future use.
