@@ -27799,6 +27799,55 @@ test_434() {
 }
 run_test 434 "Client should not send RPCs for security.selinux with SElinux disabled"
 
+test_440() {
+	if [[ -f $LUSTRE/scripts/bash-completion/lustre ]]; then
+		source $LUSTRE/scripts/bash-completion/lustre
+	elif [[ -f /usr/share/bash-completion/completions/lustre ]]; then
+		source /usr/share/bash-completion/completions/lustre
+	else
+		skip "bash completion scripts not found"
+	fi
+
+	local lctl_completions
+	local lfs_completions
+
+	lctl_completions=$(_lustre_cmds lctl)
+	if [[ ! $lctl_completions =~ "get_param" ]]; then
+		error "lctl bash completion failed"
+	fi
+
+	lfs_completions=$(_lustre_cmds lfs)
+	if [[ ! $lfs_completions =~ "setstripe" ]]; then
+		error "lfs bash completion failed"
+	fi
+}
+run_test 440 "bash completion for lfs, lctl"
+
+test_442() {
+	local pid1
+	local pid2
+	mkdir -p $DIR/$tdir
+	multiop $DIR/$tdir/$tfile.1 O_w1 & pid1=$!
+	multiop $DIR/$tdir/$tfile.1 O_w1 & pid2=$!
+	sleep 1
+	touch $DIR/$tdir/$tfile.2
+	$LFS swap_layouts -n $DIR/$tdir/$tfile.1 $DIR/$tdir/$tfile.2
+	$LCTL set_param fail_loc=0x1430
+	kill -USR1 $pid1
+	sleep 1
+	kill -USR1 $pid2
+	wait
+}
+run_test 442 "truncate vs read/write should not panic"
+
+test_460d() {
+	verify_yaml_available || skip_env "YAML verification not installed"
+	$LCTL get_param -n sptlrpc.page_pools
+	$LCTL get_param -n sptlrpc.page_pools | verify_yaml ||
+		error "The output of encrypt_page_pools is not an valid YAML"
+}
+run_test 460d "Check encrypt pools output"
+
 prep_801() {
 	[[ $MDS1_VERSION -lt $(version_code 2.9.55) ]] ||
 	[[ $OST1_VERSION -lt $(version_code 2.9.55) ]] &&
