@@ -661,6 +661,7 @@ void ldlm_lock_prolong_one(struct ldlm_lock *lock,
 	/* OK. this is a possible lock the user holds doing I/O
 	 * let's refresh eviction timer for it.
 	 */
+	LDLM_DEBUG(lock, "refreshed to %ds. ", timeout);
 	ldlm_refresh_waiting_lock(lock, timeout);
 }
 EXPORT_SYMBOL(ldlm_lock_prolong_one);
