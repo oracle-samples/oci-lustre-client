@@ -777,6 +777,16 @@ EXTRA_KCFLAGS="$tmp_flags"
 #
 # Oracle UEK 5
 #
+AC_DEFUN([LN_SRC_HAVE_ORACLE_OFED_EXTENSIONS], [
+	LB2_LINUX_TEST_SRC([oracle_ofed_ext], [
+		#include <rdma/ib_fmr_pool.h>
+	],[
+		struct ib_fmr_pool_param param = {
+			.relaxed           = 0
+		};
+		(void)param;
+	])
+])
 AC_DEFUN([LN_HAVE_ORACLE_OFED_EXTENSIONS], [
 LB_CHECK_COMPILE([if Oracle OFED Extensions are enabled],
 oracle_ofed_ext, [
