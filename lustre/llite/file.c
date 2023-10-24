@@ -1610,6 +1610,8 @@ void ll_io_init(struct cl_io *io, struct file *file, enum cl_io_type iot,
 	 * out allowed
 	 */
 	io->ci_allow_unaligned_dio = true;
+	if (args)
+		io->ci_hybrid_switched = args->via_hybrid_switched;
 
 	ll_io_set_mirror(io, file);
 }
@@ -1647,44 +1649,47 @@ static void ll_heat_add(struct inode *inode, enum cl_io_type iot,
 
 static ssize_t
 ll_file_io_generic(const struct lu_env *env, struct vvp_io_args *args,
-		   struct file *file, enum cl_io_type iot,
-		   loff_t *ppos, size_t count)
+		   		   struct file *file, enum cl_io_type iot,
+				   loff_t *ppos, size_t bytes)
 {
-	struct vvp_io *vio = vvp_env_io(env);
 	struct inode *inode = file_inode(file);
+	struct ll_file_data *fd  = file->private_data;
 	struct ll_inode_info *lli = ll_i2info(inode);
 	struct ll_sb_info *sbi = ll_i2sbi(inode);
-	struct ll_file_data *fd  = file->private_data;
-	struct range_lock range;
-	bool range_locked = false;
-	struct cl_io *io;
-	ssize_t result = 0;
-	int rc = 0;
-	int rc2 = 0;
-	unsigned int retried = 0, dio_lock = 0;
-	bool is_aio = false;
-	bool is_parallel_dio = false;
+	struct vvp_io *vio = vvp_env_io(env);
 	struct cl_dio_aio *ci_dio_aio = NULL;
+	struct range_lock range;
+	struct cl_io *io;
+	int flags = vvp_io_args_flags(file, args);
+	bool is_parallel_dio = false;
+	bool range_locked = false;
+	unsigned int retried = 0;
+	bool dio_lock = false;
+	bool is_aio = false;
+	size_t max_io_bytes;
+	ssize_t result = 0;
+	int retries = 1000;
 	size_t per_bytes;
-	bool partial_io = false;
-	size_t max_io_pages, max_cached_pages;
+	bool partial_io;
+	int rc2 = 0;
+	int rc = 0;
 
 	ENTRY;
 
-	CDEBUG(D_VFSTRACE, "%s: %s ppos: %llu, count: %zu\n",
-		file_dentry(file)->d_name.name,
-		iot == CIT_READ ? "read" : "write", *ppos, count);
+	CDEBUG(D_VFSTRACE, "%s: %s ppos: %llu, bytes: %zu\n",
+		   file_dentry(file)->d_name.name,
+		   iot == CIT_READ ? "read" : "write", *ppos, bytes);
 
-	max_io_pages = PTLRPC_MAX_BRW_PAGES * OBD_MAX_RIF_DEFAULT;
-	max_cached_pages = sbi->ll_cache->ccc_lru_max;
-	if (max_io_pages > (max_cached_pages >> 2))
-		max_io_pages = max_cached_pages >> 2;
+	max_io_bytes = min_t(size_t, PTLRPC_MAX_BRW_PAGES * OBD_MAX_RIF_DEFAULT,
+			     sbi->ll_cache->ccc_lru_max >> 2) << PAGE_SHIFT;
 
 	io = vvp_env_thread_io(env);
-	if (file->f_flags & O_DIRECT) {
-		if (file->f_flags & O_APPEND)
-			dio_lock = 1;
-		if (!is_sync_kiocb(args->u.normal.via_iocb))
+	if (iocb_ki_flags_check(flags, DIRECT)) {
+		if (iocb_ki_flags_check(flags, APPEND))
+			dio_lock = true;
+		if (!is_sync_kiocb(args->u.normal.via_iocb) &&
+		/* hybrid IO is also potentially async */
+		    !args->via_hybrid_switched)
 			is_aio = true;
 
 		/* the kernel does not support AIO on pipes, and parallel DIO
@@ -1709,11 +1714,13 @@ restart:
 	 * if we have small max_cached_mb but large block IO issued, io
 	 * could not be finished and blocked whole client.
 	 */
-	if (file->f_flags & O_DIRECT)
-		per_bytes = count;
-	else
-		per_bytes = min(max_io_pages << PAGE_SHIFT, count);
-	partial_io = per_bytes < count;
+	if (iocb_ki_flags_check(flags, DIRECT) || bytes < max_io_bytes) {
+		per_bytes = bytes;
+		partial_io = false;
+	} else {
+		per_bytes = max_io_bytes;
+		partial_io = true;
+	}
 	io = vvp_env_thread_io(env);
 	ll_io_init(io, file, iot, args);
 	io->ci_dio_aio = ci_dio_aio;
@@ -1735,7 +1742,7 @@ restart:
 		 * See LU-6227 for details.
 		 */
 		if (((iot == CIT_WRITE) ||
-		    (iot == CIT_READ && (file->f_flags & O_DIRECT))) &&
+		    (iot == CIT_READ && iocb_ki_flags_check(flags, DIRECT))) &&
 		    !(vio->vui_fd->fd_flags & LL_FILE_GROUP_LOCKED)) {
 			CDEBUG(D_VFSTRACE, "Range lock "RL_FMT"\n",
 			       RL_PARA(&range));
@@ -1787,10 +1794,10 @@ restart:
 		} else if (rc2) {
 			result = 0;
 		}
-		count -= io->ci_nob;
+		bytes -= io->ci_nob;
 
 		/* prepare IO restart */
-		if (count > 0)
+		if (bytes > 0)
 			args->u.normal.via_iter = vio->vui_iter;
 
 		if (partial_io) {
@@ -1798,7 +1805,7 @@ restart:
 			 * Reexpand iov count because it was zero
 			 * after IO finish.
 			 */
-			iov_iter_reexpand(vio->vui_iter, count);
+			iov_iter_reexpand(vio->vui_iter, bytes);
 			if (per_bytes == io->ci_nob)
 				io->ci_need_restart = 1;
 		}
@@ -1812,12 +1819,12 @@ out:
 	       iot, rc, result, io->ci_need_restart);
 
 	if ((rc == 0 || rc == -ENODATA || rc == -ENOLCK) &&
-	    count > 0 && io->ci_need_restart) {
+	    bytes > 0 && io->ci_need_restart && retries-- > 0) {
 		CDEBUG(D_VFSTRACE,
-		       "%s: restart %s from %lld, count: %zu, ret: %zd, rc: %d\n",
+		       "%s: restart %s from %lld, bytes: %zu, retries=%u ret: %zd, rc: %d\n",
 		       file_dentry(file)->d_name.name,
 		       iot == CIT_READ ? "read" : "write",
-		       *ppos, count, result, rc);
+		       *ppos, bytes, retries, result, rc);
 		/* preserve the tried count for FLR */
 		retried = io->ci_ndelay_tried;
 		dio_lock = io->ci_dio_lock;
@@ -2067,16 +2074,25 @@ static ssize_t ll_file_read_iter(struct kiocb *iocb, struct iov_iter *to)
 
 	ll_ras_enter(file, iocb->ki_pos, iov_iter_count(to));
 
-	result = ll_do_fast_read(iocb, to);
-	if (result < 0 || iov_iter_count(to) == 0)
-		GOTO(out, result);
-
 	args = ll_env_args(env);
 	args->u.normal.via_iter = to;
 	args->u.normal.via_iocb = iocb;
 
+	if (ll_hybrid_bio_dio_switch_check(file, iocb, CIT_READ,
+									   iov_iter_count(to))) {
+#ifdef IOCB_DIRECT
+		iocb->ki_flags |= IOCB_DIRECT;
+		CDEBUG(D_VFSTRACE, "switching to DIO\n");
+		args->via_hybrid_switched = 1;
+#endif
+	}
+
+	result = ll_do_fast_read(iocb, to);
+	if (result < 0 || iov_iter_count(to) == 0)
+		GOTO(out, result);
+
 	rc2 = ll_file_io_generic(env, args, file, CIT_READ,
-				 &iocb->ki_pos, iov_iter_count(to));
+							 &iocb->ki_pos, iov_iter_count(to));
 	if (rc2 > 0)
 		result += rc2;
 	else if (result == 0)
@@ -2096,10 +2112,10 @@ out:
 
 	if (result > 0) {
 		ll_rw_stats_tally(ll_i2sbi(file_inode(file)), current->pid,
-				  file->private_data, iocb->ki_pos, result,
-				  READ);
+						  file->private_data, iocb->ki_pos, result,
+						  READ);
 		ll_stats_ops_tally(ll_i2sbi(file_inode(file)), LPROC_LL_READ,
-				   ktime_us_delta(ktime_get(), kstart));
+									ktime_us_delta(ktime_get(), kstart));
 	}
 
 	CDEBUG(D_IOTRACE,
@@ -2173,13 +2189,16 @@ static ssize_t ll_do_tiny_write(struct kiocb *iocb, struct iov_iter *iter)
  */
 static ssize_t ll_file_write_iter(struct kiocb *iocb, struct iov_iter *from)
 {
+	struct file *file = iocb->ki_filp;
 	struct vvp_io_args *args;
 	struct lu_env *env;
-	ssize_t rc_tiny = 0, rc_normal;
-	struct file *file = iocb->ki_filp;
+	int flags = iocb_ki_flags_get(file, iocb);
+	ktime_t kstart = ktime_get();
+	bool hybrid_switched = false;
+	ssize_t rc_tiny = 0;
+	ssize_t rc_normal;
 	__u16 refcheck;
 	bool cached;
-	ktime_t kstart = ktime_get();
 	int result;
 
 	ENTRY;
@@ -2206,6 +2225,15 @@ static ssize_t ll_file_write_iter(struct kiocb *iocb, struct iov_iter *from)
 	if (cached && result != -ENOSPC && result != -EDQUOT)
 		GOTO(out, rc_normal = result);
 
+	if (ll_hybrid_bio_dio_switch_check(file, iocb, CIT_WRITE,
+					   iov_iter_count(from))) {
+#ifdef IOCB_DIRECT
+		iocb->ki_flags |= IOCB_DIRECT;
+		CDEBUG(D_VFSTRACE, "switching to DIO\n");
+		hybrid_switched = true;
+#endif
+	}
+
 	/* NB: we can't do direct IO for tiny writes because they use the page
 	 * cache, we can't do sync writes because tiny writes can't flush
 	 * pages, and we can't do append writes because we can't guarantee the
@@ -2228,6 +2256,7 @@ static ssize_t ll_file_write_iter(struct kiocb *iocb, struct iov_iter *from)
 	args = ll_env_args(env);
 	args->u.normal.via_iter = from;
 	args->u.normal.via_iocb = iocb;
+	args->via_hybrid_switched = hybrid_switched;
 
 	rc_normal = ll_file_io_generic(env, args, file, CIT_WRITE,
 				       &iocb->ki_pos, iov_iter_count(from));
@@ -2245,10 +2274,10 @@ static ssize_t ll_file_write_iter(struct kiocb *iocb, struct iov_iter *from)
 out:
 	if (rc_normal > 0) {
 		ll_rw_stats_tally(ll_i2sbi(file_inode(file)), current->pid,
-				  file->private_data, iocb->ki_pos,
-				  rc_normal, WRITE);
+				  		  file->private_data, iocb->ki_pos,
+						  rc_normal, WRITE);
 		ll_stats_ops_tally(ll_i2sbi(file_inode(file)), LPROC_LL_WRITE,
-				   ktime_us_delta(ktime_get(), kstart));
+						   ktime_us_delta(ktime_get(), kstart));
 	}
 
 	CDEBUG(D_IOTRACE,

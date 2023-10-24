@@ -1378,6 +1378,8 @@ struct vvp_io_args {
 			struct iov_iter   *via_iter;
                 } normal;
         } u;
+	/* did we switch this IO from BIO to DIO using hybrid IO? */
+	int	via_hybrid_switched:1;
 };
 
 enum lcc_type {
