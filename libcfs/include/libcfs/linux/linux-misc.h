@@ -141,7 +141,7 @@ do {									\
 } while (0)
 #endif
 
-void cfs_arch_init(void);
+int cfs_arch_init(void);
 void cfs_arch_exit(void);
 
 #ifndef container_of_safe

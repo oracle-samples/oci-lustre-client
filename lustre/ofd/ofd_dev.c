@@ -3306,6 +3306,10 @@ static int __init ofd_init(void)
 {
 	int rc;
 
+	rc = libcfs_setup();
+	if (rc)
+		return rc;
+
 	rc = lu_kmem_init(ofd_caches);
 	if (rc)
 		return rc;

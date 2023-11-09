@@ -1318,14 +1318,18 @@ static int __init lov_init(void)
 	int rc;
 	ENTRY;
 
-        /* print an address of _any_ initialized kernel symbol from this
-         * module, to allow debugging with gdb that doesn't support data
-         * symbols from modules.*/
-        CDEBUG(D_INFO, "Lustre LOV module (%p).\n", &lov_caches);
+	/* print an address of _any_ initialized kernel symbol from this
+	 * module, to allow debugging with gdb that doesn't support data
+	 * symbols from modules.*/
+	CDEBUG(D_INFO, "Lustre LOV module (%p).\n", &lov_caches);
 
-        rc = lu_kmem_init(lov_caches);
-        if (rc)
-                return rc;
+	rc = libcfs_setup();
+	if (rc)
+		return rc;
+
+	rc = lu_kmem_init(lov_caches);
+	if (rc)
+		return rc;
 
 	lov_oinfo_slab = kmem_cache_create("lov_oinfo",
 					   sizeof(struct lov_oinfo), 0,
