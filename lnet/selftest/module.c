@@ -111,6 +111,10 @@ lnet_selftest_init(void)
 	 */
 	lnet_selftest_structure_assertion();
 
+	rc = libcfs_setup();
+	if (rc)
+		return rc;
+
 	lst_serial_wq = alloc_ordered_workqueue("lst_s", 0);
 	if (!lst_serial_wq) {
 		CERROR("Failed to create serial WI scheduler for LST\n");
