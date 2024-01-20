@@ -1221,6 +1221,7 @@ static int lov_quotactl(struct obd_device *obd, struct obd_export *exp,
 	struct lov_obd *lov = &obd->u.lov;
 	struct lov_tgt_desc *tgt;
 	struct pool_desc *pool = NULL;
+	struct list_head *lst = NULL;
 	__u64 curspace = 0;
 	__u64 bhardlimit = 0;
 	int i, rc = 0;
@@ -1228,7 +1229,8 @@ static int lov_quotactl(struct obd_device *obd, struct obd_export *exp,
 	ENTRY;
 	if (oqctl->qc_cmd != Q_GETOQUOTA &&
 	    oqctl->qc_cmd != LUSTRE_Q_SETQUOTA &&
-	    oqctl->qc_cmd != LUSTRE_Q_GETQUOTAPOOL) {
+	    oqctl->qc_cmd != LUSTRE_Q_GETQUOTAPOOL &&
+	    oqctl->qc_cmd != LUSTRE_Q_ITEROQUOTA) {
 		rc = -EFAULT;
 		CERROR("%s: bad quota opc %x for lov obd: rc = %d\n",
 		       obd->obd_name, oqctl->qc_cmd, rc);
@@ -1244,7 +1246,10 @@ static int lov_quotactl(struct obd_device *obd, struct obd_export *exp,
 		oqctl->qc_cmd = Q_GETOQUOTA;
 	}
 
-        /* for lov tgt */
+	if (oqctl->qc_cmd == LUSTRE_Q_ITEROQUOTA)
+		lst = (struct list_head *)oqctl->qc_iter_list;
+
+	/* for lov tgt */
 	lov_tgts_getref(obd);
         for (i = 0; i < lov->desc.ld_tgt_count; i++) {
                 int err;
@@ -1270,27 +1275,32 @@ static int lov_quotactl(struct obd_device *obd, struct obd_export *exp,
 			continue;
 		}
 
-                err = obd_quotactl(tgt->ltd_exp, oqctl);
-                if (err) {
-                        if (tgt->ltd_active && !rc)
-                                rc = err;
-                        continue;
-                }
+		if (oqctl->qc_cmd == LUSTRE_Q_ITEROQUOTA)
+			err = obd_quota_iter(tgt->ltd_exp, oqctl, lst);
+		else
+			err = obd_quotactl(tgt->ltd_exp, oqctl);
 
-                if (oqctl->qc_cmd == Q_GETOQUOTA) {
-                        curspace += oqctl->qc_dqblk.dqb_curspace;
-                        bhardlimit += oqctl->qc_dqblk.dqb_bhardlimit;
-                }
-        }
+		if (err) {
+			if (tgt->ltd_active && !rc)
+				rc = err;
+			continue;
+		}
+
+		if (oqctl->qc_cmd == Q_GETOQUOTA) {
+			curspace += oqctl->qc_dqblk.dqb_curspace;
+			bhardlimit += oqctl->qc_dqblk.dqb_bhardlimit;
+		}
+	}
 	lov_tgts_putref(obd);
 	if (pool)
 		lov_pool_putref(pool);
 
-        if (oqctl->qc_cmd == Q_GETOQUOTA) {
-                oqctl->qc_dqblk.dqb_curspace = curspace;
-                oqctl->qc_dqblk.dqb_bhardlimit = bhardlimit;
-        }
-        RETURN(rc);
+	if (oqctl->qc_cmd == Q_GETOQUOTA) {
+		oqctl->qc_dqblk.dqb_curspace = curspace;
+		oqctl->qc_dqblk.dqb_bhardlimit = bhardlimit;
+	}
+
+	RETURN(rc);
 }
 
 static const struct obd_ops lov_obd_ops = {

@@ -67,6 +67,25 @@ enum osd_qid_declare_flags {
 	OSD_QID_FORCE	= BIT(2),
 };
 
+/* the length of the buffer to contain the quotas gotten from QMT/QSD,
+ * the maximum is 128 quota IDs (each struct lquota_glb_rec for MD or DT),
+ * it can contain about 420 quota IDs for theirs quota usage.
+ */
+#define LQUOTA_ITER_BUFLEN					\
+	(128 * 2 * (sizeof(__u64) + sizeof(struct lquota_glb_rec)))
+
+struct lquota_iter {
+	struct list_head li_link;
+	__u32		 li_md_size;
+	__u32		 li_dt_size;
+	char		 li_buffer[0];
+};
+
+struct if_quotactl_iter {
+	struct list_head	qci_link;
+	struct if_quotactl	qci_qc;
+};
+
 /* Index features supported by the global index objects
  * Only used for migration purpose and should be removed once on-disk migration
  * is no longer needed */
@@ -91,8 +110,8 @@ extern struct dt_index_features dt_quota_bgrp_features;
  * does not rely any more on the MDT service threads and namespace. */
 struct qmt_handlers {
 	/* Handle quotactl request from client. */
-	int (*qmth_quotactl)(const struct lu_env *, struct lu_device *,
-			     struct obd_quotactl *);
+	int (*qmth_quotactl)(const struct lu_env *env, struct lu_device *d,
+			     struct obd_quotactl *, char *buf, int len);
 
 	/* Handle dqacq/dqrel request from slave. */
 	int (*qmth_dqacq)(const struct lu_env *, struct lu_device *,
@@ -249,8 +268,10 @@ struct lquota_trans {
 	 res->lr_name.name[LUSTRE_RES_ID_SEQ_OFF] == FID_SEQ_QUOTA_GLB)
 
 /* helper function used by MDT & OFD to retrieve quota accounting information
- * on slave */
-int lquotactl_slv(const struct lu_env *, struct dt_device *,
-		  struct obd_quotactl *);
+ * on slave
+ */
+int lquotactl_slv(const struct lu_env *env, struct dt_device *dt,
+		  struct obd_quotactl *obdq, char *buf, int len);
+
 /** @} quota */
 #endif /* _LUSTRE_QUOTA_H */

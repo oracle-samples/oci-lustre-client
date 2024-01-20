@@ -208,6 +208,8 @@ static struct ll_sb_info *ll_init_sbi(void)
 	sbi->ll_oc_thrsh_count = SBI_DEFAULT_OPENCACHE_THRESHOLD_COUNT;
 	sbi->ll_oc_max_ms = SBI_DEFAULT_OPENCACHE_THRESHOLD_MAX_MS;
 	sbi->ll_oc_thrsh_ms = SBI_DEFAULT_OPENCACHE_THRESHOLD_MS;
+
+	INIT_LIST_HEAD(&sbi->ll_all_quota_list);
 	RETURN(sbi);
 out_destroy_ra:
 	if (sbi->ll_foreign_symlink_prefix)
@@ -1472,6 +1474,8 @@ void ll_put_super(struct super_block *sb)
 	/* Should replace instance_id with something better for ASLR */
 	CDEBUG(D_VFSTRACE, "VFS Op: cfg_instance %s-%016lx (sb %p)\n",
 	       profilenm, cfg_instance, sb);
+
+	ll_quota_iter_check_and_cleanup(sbi, false);
 
 	cfg.cfg_instance = cfg_instance;
 	lustre_end_log(sb, profilenm, &cfg);
