@@ -1523,9 +1523,9 @@ struct cl_io_operations {
 	 * executed on them.
 	 */
 	int  (*cio_submit)(const struct lu_env *env,
-			const struct cl_io_slice *slice,
-			enum cl_req_type crt,
-			struct cl_2queue *queue);
+					   struct cl_io *io,
+					   const struct cl_io_slice *slice,
+					   enum cl_req_type crt, struct cl_2queue *queue);
 	/**
 	 * Queue async page for write.
 	 * The difference between cio_submit and cio_queue is that
