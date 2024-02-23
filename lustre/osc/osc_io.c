@@ -156,42 +156,41 @@ int osc_io_submit(const struct lu_env *env, const struct cl_io_slice *ios,
 	if (lnet_is_rdma_only_page(page->cp_vmpage))
 		brw_flags |= OBD_BRW_RDMA_ONLY;
 
-        /*
-         * NOTE: here @page is a top-level page. This is done to avoid
-         *       creation of sub-page-list.
-         */
-        cl_page_list_for_each_safe(page, tmp, qin) {
-                struct osc_async_page *oap;
+	/*
+	 * NOTE: here @page is a top-level page. This is done to avoid
+	 *       creation of sub-page-list.
+	 */
+	cl_page_list_for_each_safe(page, tmp, qin) {
+		struct osc_async_page *oap;
 
-                /* Top level IO. */
-                io = page->cp_owner;
-                LASSERT(io != NULL);
+		/* Top level IO. */
+		io = page->cp_owner;
+		LASSERT(io != NULL);
 
 		opg = osc_cl_page_osc(page, osc);
 		oap = &opg->ops_oap;
-		LASSERT(osc == oap->oap_obj);
 
 		if (!list_empty(&oap->oap_pending_item) ||
 		    !list_empty(&oap->oap_rpc_item)) {
-			CDEBUG(D_CACHE, "Busy oap %p page %p for submit.\n",
-			       oap, opg);
-                        result = -EBUSY;
-                        break;
-                }
+				CDEBUG(D_CACHE, "Busy oap %p page %p for submit.\n",
+					oap, opg);
+				result = -EBUSY;
+				break;
+        }
 
-                result = cl_page_prep(env, io, page, crt);
+        result = cl_page_prep(env, io, page, crt);
 		if (result != 0) {
-                        LASSERT(result < 0);
-                        if (result != -EALREADY)
-                                break;
-                        /*
-                         * Handle -EALREADY error: for read case, the page is
-                         * already in UPTODATE state; for write, the page
-                         * is not dirty.
-                         */
-                        result = 0;
+			LASSERT(result < 0);
+			if (result != -EALREADY)
+					break;
+			/*
+				* Handle -EALREADY error: for read case, the page is
+				* already in UPTODATE state; for write, the page
+				* is not dirty.
+				*/
+			result = 0;
 			continue;
-                }
+        }
 
 		if (page->cp_type != CPT_TRANSIENT) {
 			oap->oap_async_flags = ASYNC_URGENT|ASYNC_READY|ASYNC_COUNT_STABLE;
@@ -331,9 +330,6 @@ int osc_io_commit_async(const struct lu_env *env,
 		opg = osc_cl_page_osc(page, osc);
 		oap = &opg->ops_oap;
 
-		LASSERTF(osc == oap->oap_obj,
-			 "obj mismatch: %p / %p\n", osc, oap->oap_obj);
-
 		if (!list_empty(&oap->oap_rpc_item)) {
 			CDEBUG(D_CACHE, "Busy oap %p page %p for submit.\n",
 			       oap, opg);
@@ -343,7 +339,7 @@ int osc_io_commit_async(const struct lu_env *env,
 
 		/* The page may be already in dirty cache. */
 		if (list_empty(&oap->oap_pending_item)) {
-			result = osc_page_cache_add(env, opg, io, cb);
+			result = osc_page_cache_add(env, osc, opg, io, cb);
 			if (result != 0)
 				break;
 		}
