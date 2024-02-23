@@ -87,7 +87,6 @@ struct osc_async_page {
 
 	loff_t			oap_obj_off;
 
-	struct ptlrpc_request	*oap_request;
 	struct osc_object	*oap_obj;
 
 	struct brw_page		oap_brw_page;
@@ -549,6 +548,7 @@ struct osc_brw_async_args {
 	struct client_obd	*aa_cli;
 	struct list_head	 aa_oaps;
 	struct list_head	 aa_exts;
+	struct ptlrpc_request	*aa_request;
 };
 
 extern struct kmem_cache *osc_lock_kmem;
