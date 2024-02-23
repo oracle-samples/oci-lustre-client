@@ -168,7 +168,8 @@ static void cl_page_free(const struct lu_env *env, struct cl_page *cp,
 	ENTRY;
 	PASSERT(env, cp, list_empty(&cp->cp_batch));
 	PASSERT(env, cp, cp->cp_owner == NULL);
-	PASSERT(env, cp, cp->cp_state == CPS_FREEING);
+	if (cp->cp_type != CPT_TRANSIENT)
+		PASSERT(env, cp, cp->cp_state == CPS_FREEING);
 
 	if (cp->cp_type == CPT_CACHEABLE) {
 		/* vmpage->private was already cleared when page was
@@ -187,7 +188,8 @@ static void cl_page_free(const struct lu_env *env, struct cl_page *cp,
 
 	cp->cp_layer_count = 0;
 	cs_page_dec(obj, CS_total);
-	cs_pagestate_dec(obj, cp->cp_state);
+	if (cp->cp_type != CPT_TRANSIENT)
+		cs_pagestate_dec(obj, cp->cp_state);
 	lu_object_ref_del_at(&obj->co_lu, &cp->cp_obj_ref, "cl_page", cp);
 	if (cp->cp_type != CPT_TRANSIENT)
 		cl_object_put(env, obj);
@@ -278,7 +280,8 @@ struct cl_page *cl_page_alloc(const struct lu_env *env, struct cl_object *o,
 		lu_object_ref_add_at(&o->co_lu, &cl_page->cp_obj_ref,
 				     "cl_page", cl_page);
 		cl_page->cp_vmpage = vmpage;
-		cl_page->cp_state = CPS_CACHED;
+		if (cl_page->cp_type != CPT_TRANSIENT)
+			cl_page->cp_state = CPS_CACHED;
 		cl_page->cp_type = type;
 		if (type == CPT_TRANSIENT)
 			/* ref to correct inode will be added
@@ -440,6 +443,7 @@ static void __cl_page_state_set(const struct lu_env *env,
 static void cl_page_state_set(const struct lu_env *env,
                               struct cl_page *page, enum cl_page_state state)
 {
+	LASSERT(page->cp_type != CPT_TRANSIENT);
 	__cl_page_state_set(env, page, state);
 }
 
@@ -473,7 +477,8 @@ void cl_batch_put(const struct lu_env *env, struct cl_page *page,
 		       refcount_read(&page->cp_ref));
 
 	if (refcount_dec_and_test(&page->cp_ref)) {
-		LASSERT(page->cp_state == CPS_FREEING);
+		if (page->cp_type != CPT_TRANSIENT)
+			LASSERT(page->cp_state == CPS_FREEING);
 
 		LASSERT(refcount_read(&page->cp_ref) == 0);
 		PASSERT(env, page, page->cp_owner == NULL);
@@ -554,15 +559,14 @@ void __cl_page_disown(const struct lu_env *env, struct cl_page *cp)
 	enum cl_page_state state;
 
 	ENTRY;
-	state = cp->cp_state;
-	PINVRNT(env, cp, state == CPS_OWNED || state == CPS_FREEING);
-	PINVRNT(env, cp, cl_page_invariant(cp) || state == CPS_FREEING);
 	cl_page_owner_clear(cp);
 
-	if (state == CPS_OWNED)
-		cl_page_state_set(env, cp, CPS_CACHED);
-
 	if (cp->cp_type == CPT_CACHEABLE) {
+		state = cp->cp_state;
+		PINVRNT(env, cp, state == CPS_OWNED || state == CPS_FREEING);
+		PINVRNT(env, cp, cl_page_invariant(cp) || state == CPS_FREEING);
+		if (state == CPS_OWNED)
+			cl_page_state_set(env, cp, CPS_CACHED);
 		vmpage = cp->cp_vmpage;
 		LASSERT(vmpage != NULL);
 		LASSERT(PageLocked(vmpage));
@@ -580,7 +584,10 @@ int cl_page_is_owned(const struct cl_page *pg, const struct cl_io *io)
 	struct cl_io *top = cl_io_top((struct cl_io *)io);
 	LINVRNT(cl_object_same(pg->cp_obj, io->ci_obj));
 	ENTRY;
-	RETURN(pg->cp_state == CPS_OWNED && pg->cp_owner == top);
+	if (pg->cp_type != CPT_TRANSIENT)
+		RETURN(pg->cp_state == CPS_OWNED && pg->cp_owner == top);
+	else
+		RETURN(pg->cp_owner == top);
 }
 EXPORT_SYMBOL(cl_page_is_owned);
 
@@ -612,7 +619,8 @@ static int __cl_page_own(const struct lu_env *env, struct cl_io *io,
 	ENTRY;
 	PINVRNT(env, cl_page, !cl_page_is_owned(cl_page, io));
 
-	if (cl_page->cp_state == CPS_FREEING) {
+	if (cl_page->cp_type != CPT_TRANSIENT &&
+	    cl_page->cp_state == CPS_FREEING) {
 		result = -ENOENT;
 		goto out;
 	}
@@ -641,13 +649,16 @@ static int __cl_page_own(const struct lu_env *env, struct cl_io *io,
 	cl_page->cp_owner = cl_io_top(io);
 	cl_page_owner_set(cl_page);
 
-	if (cl_page->cp_state == CPS_FREEING) {
-		__cl_page_disown(env, cl_page);
-		result = -ENOENT;
-		goto out;
+	if (cl_page->cp_type != CPT_TRANSIENT) {
+		if (cl_page->cp_state == CPS_FREEING) {
+			__cl_page_disown(env, cl_page);
+			result = -ENOENT;
+			goto out;
+		}
+
+		cl_page_state_set(env, cl_page, CPS_OWNED);
 	}
 
-	cl_page_state_set(env, cl_page, CPS_OWNED);
 	result = 0;
 out:
 	PINVRNT(env, cl_page, ergo(result == 0,
@@ -705,7 +716,8 @@ void cl_page_assume(const struct lu_env *env,
 	PASSERT(env, cp, cp->cp_owner == NULL);
 	cp->cp_owner = cl_io_top(io);
 	cl_page_owner_set(cp);
-	cl_page_state_set(env, cp, CPS_OWNED);
+	if (cp->cp_type != CPT_TRANSIENT)
+		cl_page_state_set(env, cp, CPS_OWNED);
 	EXIT;
 }
 EXPORT_SYMBOL(cl_page_assume);
@@ -729,7 +741,8 @@ void cl_page_unassume(const struct lu_env *env,
 	PINVRNT(env, cp, cl_page_invariant(cp));
 
 	cl_page_owner_clear(cp);
-	cl_page_state_set(env, cp, CPS_CACHED);
+	if (cp->cp_type != CPT_TRANSIENT)
+		cl_page_state_set(env, cp, CPS_CACHED);
 
 	if (cp->cp_type == CPT_CACHEABLE) {
 		vmpage = cp->cp_vmpage;
@@ -754,8 +767,10 @@ EXPORT_SYMBOL(cl_page_unassume);
 void cl_page_disown(const struct lu_env *env,
                     struct cl_io *io, struct cl_page *pg)
 {
-	PINVRNT(env, pg, cl_page_is_owned(pg, io) ||
-		pg->cp_state == CPS_FREEING);
+	if (pg->cp_type != CPT_TRANSIENT) {
+		PINVRNT(env, pg, cl_page_is_owned(pg, cl_io_top(io)) ||
+			pg->cp_state == CPS_FREEING);
+	}
 
 	__cl_page_disown(env, pg);
 }
@@ -808,13 +823,15 @@ static void __cl_page_delete(const struct lu_env *env, struct cl_page *cp)
 	int i;
 
 	ENTRY;
-	PASSERT(env, cp, cp->cp_state != CPS_FREEING);
+	if (cp->cp_type != CPT_TRANSIENT)
+		PASSERT(env, cp, cp->cp_state != CPS_FREEING);
 
 	/*
 	 * Severe all ways to obtain new pointers to @pg.
 	 */
 	cl_page_owner_clear(cp);
-	__cl_page_state_set(env, cp, CPS_FREEING);
+	if (cp->cp_type != CPT_TRANSIENT)
+		__cl_page_state_set(env, cp, CPS_FREEING);
 
 	cl_page_slice_for_each_reverse(cp, slice, i) {
 		if (slice->cpl_ops->cpo_delete != NULL)
@@ -883,13 +900,12 @@ static enum cl_page_state cl_req_type_state(enum cl_req_type crt)
 static void cl_page_io_start(const struct lu_env *env,
                              struct cl_page *pg, enum cl_req_type crt)
 {
-        /*
-         * Page is queued for IO, change its state.
-         */
-        ENTRY;
-        cl_page_owner_clear(pg);
-        cl_page_state_set(env, pg, cl_req_type_state(crt));
-        EXIT;
+	/* Page is queued for IO, change its state. */
+	ENTRY;
+	cl_page_owner_clear(pg);
+	if (pg->cp_type != CPT_TRANSIENT)
+		cl_page_state_set(env, pg, cl_req_type_state(crt));
+	EXIT;
 }
 
 /**
@@ -956,10 +972,13 @@ void cl_page_completion(const struct lu_env *env,
 
         ENTRY;
 	PASSERT(env, cl_page, crt < CRT_NR);
-	PASSERT(env, cl_page, cl_page->cp_state == cl_req_type_state(crt));
+	if (cl_page->cp_type != CPT_TRANSIENT)
+		PASSERT(env, cl_page,
+			cl_page->cp_state == cl_req_type_state(crt));
 
 	CL_PAGE_HEADER(D_TRACE, env, cl_page, "%d %d\n", crt, ioret);
-	cl_page_state_set(env, cl_page, CPS_CACHED);
+	if (cl_page->cp_type != CPT_TRANSIENT)
+		cl_page_state_set(env, cl_page, CPS_CACHED);
 	if (crt >= CRT_NR)
 		return;
 
