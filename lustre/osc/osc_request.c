@@ -3896,7 +3896,7 @@ LIST_HEAD(osc_shrink_list);
 DEFINE_SPINLOCK(osc_shrink_lock);
 
 #ifdef HAVE_SHRINKER_COUNT
-static struct shrinker osc_cache_shrinker = {
+static struct ll_shrinker_ops osc_cache_sh_ops = {
 	.count_objects	= osc_cache_shrink_count,
 	.scan_objects	= osc_cache_shrink_scan,
 	.seeks		= DEFAULT_SEEKS,
@@ -3910,11 +3910,13 @@ static int osc_cache_shrink(struct shrinker *shrinker,
 	return osc_cache_shrink_count(shrinker, sc);
 }
 
-static struct shrinker osc_cache_shrinker = {
+static struct ll_shrinker_ops osc_cache_sh_ops = {
 	.shrink   = osc_cache_shrink,
 	.seeks    = DEFAULT_SEEKS,
 };
 #endif
+
+static struct shrinker *osc_cache_shrinker;
 
 static int __init osc_init(void)
 {
@@ -3936,14 +3938,10 @@ static int __init osc_init(void)
 	if (rc)
 		RETURN(rc);
 
-	rc = class_register_type(&osc_obd_ops, NULL, true,
-				 LUSTRE_OSC_NAME, &osc_device_type);
-	if (rc)
-		GOTO(out_kmem, rc);
-
-	rc = register_shrinker(&osc_cache_shrinker);
-	if (rc)
-		GOTO(out_type, rc);
+	osc_cache_shrinker = ll_shrinker_create(&osc_cache_sh_ops, 0,
+						"osc_cache");
+	if (IS_ERR(osc_cache_shrinker))
+		GOTO(out_kmem, rc = PTR_ERR(osc_cache_shrinker));
 
 	/* This is obviously too much memory, only prevent overflow here */
 	if (osc_reqpool_mem_max >= 1 << 12 || osc_reqpool_mem_max == 0)
@@ -3974,14 +3972,19 @@ static int __init osc_init(void)
 	if (rc != 0)
 		GOTO(out_req_pool, rc);
 
+	rc = class_register_type(&osc_obd_ops, NULL, true,
+				 LUSTRE_OSC_NAME, &osc_device_type);
+	if (rc < 0)
+		GOTO(out_stop_grant, rc);
+
 	RETURN(rc);
 
+out_stop_grant:
+	osc_stop_grant_work();
 out_req_pool:
 	ptlrpc_free_rq_pool(osc_rq_pool);
 out_shrinker:
-	unregister_shrinker(&osc_cache_shrinker);
-out_type:
-	class_unregister_type(LUSTRE_OSC_NAME);
+	shrinker_free(osc_cache_shrinker);
 out_kmem:
 	lu_kmem_fini(osc_caches);
 
@@ -3990,11 +3993,11 @@ out_kmem:
 
 static void __exit osc_exit(void)
 {
-	osc_stop_grant_work();
-	unregister_shrinker(&osc_cache_shrinker);
 	class_unregister_type(LUSTRE_OSC_NAME);
-	lu_kmem_fini(osc_caches);
 	ptlrpc_free_rq_pool(osc_rq_pool);
+	osc_stop_grant_work();
+	shrinker_free(osc_cache_shrinker);
+	lu_kmem_fini(osc_caches);
 }
 
 MODULE_AUTHOR("OpenSFS, Inc. <http://www.lustre.org/>");

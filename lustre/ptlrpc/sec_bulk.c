@@ -267,13 +267,7 @@ static unsigned long enc_pools_shrink_scan(struct shrinker *s,
 	return sc->nr_to_scan;
 }
 
-#ifdef HAVE_SHRINKER_COUNT
-static struct shrinker pools_shrinker = {
-	.count_objects	= enc_pools_shrink_count,
-	.scan_objects	= enc_pools_shrink_scan,
-	.seeks		= DEFAULT_SEEKS,
-};
-#else
+#ifndef HAVE_SHRINKER_COUNT
 /*
  * could be called frequently for query (@nr_to_scan == 0).
  * we try to keep at least PTLRPC_MAX_BRW_PAGES pages in the pool.
@@ -285,12 +279,19 @@ static int enc_pools_shrink(struct shrinker *shrinker,
 
 	return enc_pools_shrink_count(shrinker, sc);
 }
-
-static struct shrinker pools_shrinker = {
-	.shrink  = enc_pools_shrink,
-	.seeks   = DEFAULT_SEEKS,
-};
 #endif /* HAVE_SHRINKER_COUNT */
+
+static struct ll_shrinker_ops pools_shrinker_ops = {
+#ifdef HAVE_SHRINKER_COUNT
+	.count_objects	= enc_pools_shrink_count,
+	.scan_objects	= enc_pools_shrink_scan,
+#else
+	.shrink		= enc_pools_shrink,
+#endif
+	.seeks		= DEFAULT_SEEKS,
+};
+
+static struct shrinker *pools_shrinker;
 
 static inline
 int npages_to_npools(unsigned long npages)
@@ -862,11 +863,15 @@ int sptlrpc_enc_pool_init(void)
 	if (page_pools.epp_pools == NULL)
 		return -ENOMEM;
 
-	rc = register_shrinker(&pools_shrinker);
-	if (rc)
+	pools_shrinker = ll_shrinker_create(&pools_shrinker_ops, 0,
+					    "sptlrpc_enc_pool");
+	if (IS_ERR(pools_shrinker)) {
+		rc = PTR_ERR(pools_shrinker);
 		enc_pools_free();
+		return rc;
+	}
 
-	return rc;
+	return 0;
 }
 
 void sptlrpc_enc_pool_fini(void)
@@ -876,7 +881,7 @@ void sptlrpc_enc_pool_fini(void)
 	LASSERT(page_pools.epp_pools);
 	LASSERT(page_pools.epp_total_pages == page_pools.epp_free_pages);
 
-	unregister_shrinker(&pools_shrinker);
+	shrinker_free(pools_shrinker);
 
 	npools = npages_to_npools(page_pools.epp_total_pages);
 	cleaned = enc_pools_cleanup(page_pools.epp_pools, npools);
