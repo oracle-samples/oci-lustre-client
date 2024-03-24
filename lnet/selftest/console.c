@@ -1745,7 +1745,7 @@ lstcon_session_new(char *name, int key, unsigned feats,
 
 	if (strlen(name) > sizeof(console_session.ses_name)-1)
 		return -E2BIG;
-	strlcpy(console_session.ses_name, name,
+	strscpy(console_session.ses_name, name,
 		sizeof(console_session.ses_name));
 
         rc = lstcon_batch_add(LST_DEFAULT_BATCH);
@@ -1969,7 +1969,7 @@ lstcon_acceptor_handle(struct srpc_server_rpc *rpc)
         if (grp->grp_userland == 0)
                 grp->grp_userland = 1;
 
-	strlcpy(jrep->join_session, console_session.ses_name,
+	strscpy(jrep->join_session, console_session.ses_name,
 		sizeof(jrep->join_session));
         jrep->join_timeout = console_session.ses_timeout;
         jrep->join_status  = 0;

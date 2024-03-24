@@ -1684,7 +1684,7 @@ again:
 	body = req_capsule_client_get(&req->rq_pill, &RMF_MGS_CONFIG_BODY);
 	LASSERT(body != NULL);
 	LASSERT(sizeof(body->mcb_name) > strlen(cld->cld_logname));
-	if (strlcpy(body->mcb_name, cld->cld_logname, sizeof(body->mcb_name))
+	if (strscpy(body->mcb_name, cld->cld_logname, sizeof(body->mcb_name))
 	    >= sizeof(body->mcb_name))
 		GOTO(out, rc = -E2BIG);
 	if (cld_is_nodemap(cld))

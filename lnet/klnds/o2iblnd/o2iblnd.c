@@ -2062,7 +2062,7 @@ kiblnd_init_poolset(struct kib_poolset *ps, int cpt,
         ps->ps_node_init    = nd_init;
         ps->ps_node_fini    = nd_fini;
         ps->ps_pool_size    = size;
-	if (strlcpy(ps->ps_name, name, sizeof(ps->ps_name))
+	if (strscpy(ps->ps_name, name, sizeof(ps->ps_name))
 	    >= sizeof(ps->ps_name))
 		return -E2BIG;
 	spin_lock_init(&ps->ps_lock);
@@ -3340,7 +3340,7 @@ kiblnd_startup(struct lnet_ni *ni)
 		}
 
 		ibdev->ibd_ifip = ifaces[i].li_ipaddr;
-		strlcpy(ibdev->ibd_ifname, ifaces[i].li_name,
+		strscpy(ibdev->ibd_ifname, ifaces[i].li_name,
 			sizeof(ibdev->ibd_ifname));
 		ibdev->ibd_can_failover = !!(ifaces[i].li_flags & IFF_MASTER);
 

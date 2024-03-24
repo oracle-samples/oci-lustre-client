@@ -273,7 +273,7 @@ sfw_init_session(struct sfw_session *sn, struct lst_sid sid,
 	atomic_set(&sn->sn_refcount, 1);        /* +1 for caller */
 	atomic_set(&sn->sn_brw_errors, 0);
 	atomic_set(&sn->sn_ping_errors, 0);
-	strlcpy(&sn->sn_name[0], name, sizeof(sn->sn_name));
+	strscpy(&sn->sn_name[0], name, sizeof(sn->sn_name));
 
 	sn->sn_timer_active = 0;
 	sn->sn_id = sid;
@@ -433,7 +433,7 @@ sfw_make_session(struct srpc_mksn_reqst *request, struct srpc_mksn_reply *reply)
 
                 if (!request->mksn_force) {
                         reply->mksn_status = EBUSY;
-			cplen = strlcpy(&reply->mksn_name[0], &sn->sn_name[0],
+			cplen = strscpy(&reply->mksn_name[0], &sn->sn_name[0],
 					sizeof(reply->mksn_name));
 			if (cplen >= sizeof(reply->mksn_name))
 				return -E2BIG;
@@ -524,7 +524,7 @@ sfw_debug_session(struct srpc_debug_reqst *request,
 	reply->dbg_status  = 0;
 	reply->dbg_sid     = sn->sn_id;
 	reply->dbg_timeout = sn->sn_timeout;
-	if (strlcpy(reply->dbg_name, &sn->sn_name[0], sizeof(reply->dbg_name))
+	if (strscpy(reply->dbg_name, &sn->sn_name[0], sizeof(reply->dbg_name))
 	    >= sizeof(reply->dbg_name))
 		return -E2BIG;
 

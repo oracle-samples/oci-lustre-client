@@ -482,12 +482,12 @@ int libcfs_debug_msg(struct libcfs_debug_msg_data *msgdata,
 		debug_buf += sizeof(header);
 	}
 
-	strlcpy(debug_buf, file, PAGE_SIZE - tage->used);
+	strscpy(debug_buf, file, PAGE_SIZE - tage->used);
 	tage->used += strlen(file) + 1;
 	debug_buf += strlen(file) + 1;
 
 	if (msgdata->msg_fn) {
-		strlcpy(debug_buf, msgdata->msg_fn, PAGE_SIZE - tage->used);
+		strscpy(debug_buf, msgdata->msg_fn, PAGE_SIZE - tage->used);
 		tage->used += strlen(msgdata->msg_fn) + 1;
 		debug_buf += strlen(msgdata->msg_fn) + 1;
 	}

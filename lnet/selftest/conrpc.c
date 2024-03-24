@@ -602,7 +602,7 @@ lstcon_sesrpc_prep(struct lstcon_node *nd, int transop,
                 msrq = &(*crpc)->crp_rpc->crpc_reqstmsg.msg_body.mksn_reqst;
                 msrq->mksn_sid     = console_session.ses_id;
                 msrq->mksn_force   = console_session.ses_force;
-		strlcpy(msrq->mksn_name, console_session.ses_name,
+		strscpy(msrq->mksn_name, console_session.ses_name,
 			sizeof(msrq->mksn_name));
                 break;
 
