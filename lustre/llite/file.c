@@ -3710,7 +3710,7 @@ int ll_ioctl_fssetxattr(struct inode *inode, unsigned int cmd,
 		RETURN(-EFAULT);
 
 	RETURN(ll_set_project(inode, fsxattr.fsx_xflags,
-			      fsxattr.fsx_projid));
+						  fsxattr.fsx_projid));
 }
 #endif
 

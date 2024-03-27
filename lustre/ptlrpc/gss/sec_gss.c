@@ -1115,8 +1115,8 @@ int gss_sec_create_common(struct gss_sec *gsec,
                 sec->ps_gc_interval = 0;
         }
 
-        if (SPTLRPC_FLVR_BULK_SVC(sec->ps_flvr.sf_rpc) == SPTLRPC_BULK_SVC_PRIV)
-                sptlrpc_enc_pool_add_user();
+	if (SPTLRPC_FLVR_BULK_SVC(sec->ps_flvr.sf_rpc) == SPTLRPC_BULK_SVC_PRIV)
+		sptlrpc_pool_add_user();
 
         CDEBUG(D_SEC, "create %s%s@%p\n", (svcctx ? "reverse " : ""),
                policy->sp_name, gsec);
@@ -1140,7 +1140,7 @@ void gss_sec_destroy_common(struct gss_sec *gsec)
 	class_import_put(sec->ps_import);
 
 	if (SPTLRPC_FLVR_BULK_SVC(sec->ps_flvr.sf_rpc) == SPTLRPC_BULK_SVC_PRIV)
-		sptlrpc_enc_pool_del_user();
+		sptlrpc_pool_del_user();
 
 	EXIT;
 }
