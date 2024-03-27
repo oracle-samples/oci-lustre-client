@@ -2828,13 +2828,9 @@ int sptlrpc_init(void)
 	if (rc)
 		goto out_gc;
 
-	rc = sptlrpc_pool_init();
-	if (rc)
-		goto out_conf;
-
 	rc = sptlrpc_null_init();
 	if (rc)
-		goto out_pool;
+		goto out_conf;
 
 	rc = sptlrpc_plain_init();
 	if (rc)
@@ -2850,8 +2846,6 @@ out_plain:
 	sptlrpc_plain_fini();
 out_null:
 	sptlrpc_null_fini();
-out_pool:
-	sptlrpc_pool_fini();
 out_conf:
 	sptlrpc_conf_fini();
 out_gc:
@@ -2865,7 +2859,6 @@ void sptlrpc_fini(void)
 	sptlrpc_lproc_fini();
 	sptlrpc_plain_fini();
 	sptlrpc_null_fini();
-	sptlrpc_pool_fini();
 	sptlrpc_conf_fini();
 	sptlrpc_gc_fini();
 }
