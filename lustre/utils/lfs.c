@@ -9034,9 +9034,23 @@ quota_type:
 			}
 			break;
 		case 's':
+			if (optarg == NULL || *optarg == '\0') {
+				fprintf(stderr,
+					"%s quota: invalid start quota ID\n",
+					progname);
+				rc = CMD_HELP;
+				goto out;
+			}
 			start_qid = strtoul(optarg, NULL, 0);
 			break;
 		case 'e':
+			if (optarg == NULL || *optarg == '\0') {
+				fprintf(stderr,
+					"%s quota: invalid start quota ID\n",
+					progname);
+				rc = CMD_HELP;
+				goto out;
+			}
 			end_qid = strtoul(optarg, NULL, 0);
 			break;
 		case 'v':
