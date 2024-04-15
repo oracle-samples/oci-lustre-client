@@ -66,9 +66,8 @@ enum ft_bits {
 #define NVIDIA_FS_CHECK_FT_DEVICE_PRIORITY(ops) \
 	((ops)->ft_bmap & nvfs_ft_device_priority)
 
-int REGISTER_FUNC (struct nvfs_dma_rw_ops *ops);
-
-void UNREGISTER_FUNC (void);
+int REGISTER_FUNC(struct nvfs_dma_rw_ops *ops);
+void UNREGISTER_FUNC(void);
 
 unsigned int lnet_get_dev_prio(struct device *dev,
 			       unsigned int dev_idx);

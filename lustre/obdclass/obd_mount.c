@@ -183,7 +183,7 @@ static int do_lcfg(char *cfgname, lnet_nid_t nid, int cmd,
  * Call class_attach and class_setup.  These methods in turn call
  * OBD type-specific methods.
  */
-int lustre_start_simple(char *obdname, char *type, char *uuid,
+SERVER_ONLY int lustre_start_simple(char *obdname, char *type, char *uuid,
 			char *s1, char *s2, char *s3, char *s4)
 {
 	int rc;
@@ -853,7 +853,7 @@ EXPORT_SYMBOL(server_name_is_ost);
  * Get the index from the target name MDTXXXX/OSTXXXX
  * rc = server type, or rc < 0  on error
  **/
-int target_name2index(const char *tgtname, __u32 *idx, const char **endptr)
+SERVER_ONLY int target_name2index(const char *tgtname, __u32 *idx, const char **endptr)
 {
 	const char *dash = tgtname;
 	unsigned long index;
@@ -883,7 +883,7 @@ int target_name2index(const char *tgtname, __u32 *idx, const char **endptr)
 
 	return rc;
 }
-EXPORT_SYMBOL(target_name2index);
+SERVER_ONLY_EXPORT_SYMBOL(target_name2index);
 
 /*
  * Get the index from the OBD name.

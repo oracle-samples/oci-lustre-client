@@ -296,9 +296,6 @@ struct ofd_thread_info {
 	unsigned			 fti_range_locked:1;
 };
 
-extern void target_recovery_fini(struct obd_device *obd);
-extern void target_recovery_init(struct lu_target *lut, svc_handler_t handler);
-
 /* ofd_access_log.c */
 bool ofd_access_log_size_is_valid(unsigned int size);
 int ofd_access_log_module_init(void);

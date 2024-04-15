@@ -1817,7 +1817,7 @@ bool osd_tx_was_declared(const struct lu_env *env, struct osd_thandle *oth,
 	return false;
 }
 
-void osd_tx_declaration_free(struct osd_thandle *oth)
+static void osd_tx_declaration_free(struct osd_thandle *oth)
 {
 	struct osd_obj_declare *old, *tmp;
 

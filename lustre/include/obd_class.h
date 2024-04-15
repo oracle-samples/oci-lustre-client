@@ -40,6 +40,14 @@
 #include <uapi/linux/lustre/lustre_idl.h>
 #include <lprocfs_status.h>
 
+#ifdef HAVE_SERVER_SUPPORT
+#define SERVER_ONLY_EXPORT_SYMBOL(symbol)	EXPORT_SYMBOL(symbol)
+#define SERVER_ONLY
+#else
+#define SERVER_ONLY static
+#define SERVER_ONLY_EXPORT_SYMBOL(symbol)
+#endif
+
 #define OBD_STATFS_NODELAY	0x0001	/* requests should be send without delay
 					 * and resends for avoid deadlocks */
 #define OBD_STATFS_FROM_CACHE	0x0002	/* the statfs callback should not update
@@ -146,6 +154,10 @@ void obd_stale_export_adjust(struct obd_export *exp);
 
 /* obd_config.c */
 /* For interoperability */
+#ifdef HAVE_SERVER_SUPPORT
+void lustre_register_quota_process_config(int (*qpc)(struct lustre_cfg *lcfg));
+#endif
+
 struct cfg_interop_param {
 	char *old_param;
 	char *new_param;
@@ -1954,5 +1966,9 @@ struct attribute *get_attr_starts_with(const struct kobj_type *typ,
 {
 	return _get_attr_matches(typ, name, len, _attr_name_starts_with);
 }
+
+/* ldlm/ldlm_lib.c */
+void target_recovery_fini(struct obd_device *obd);
+void target_recovery_init(struct lu_target *lut, svc_handler_t handler);
 
 #endif /* __LINUX_OBD_CLASS_H */
