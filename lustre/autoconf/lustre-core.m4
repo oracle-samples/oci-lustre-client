@@ -3564,6 +3564,80 @@ AC_DEFUN([LC_HAVE_ADDRESS_SPACE_OPERATIONS_RELEASE_FOLIO], [
 ]) # LC_HAVE_ADDRESS_SPACE_OPERATIONS_RELEASE_FOLIO
 
 #
+# LC_HAVE_LSMCONTEXT_INIT
+#
+# repo: git://git.launchpad.net/~ubuntu-kernel/ubuntu/+source/linux/+git/jammy
+# kernel linux-hwe-5.19 commit fef1deb99dad87dd700afae76b35c5b5750e33a8
+# LSM: Removed scaffolding function lsmcontext_init
+#
+AC_DEFUN([LC_SRC_HAVE_LSMCONTEXT_INIT], [
+	LB2_LINUX_TEST_SRC([lsmcontext_init], [
+		#include <linux/security.h>
+	],[
+		struct lsmcontext ctx = {};
+
+		lsmcontext_init(&ctx, "", 0, 0);
+	],[])
+])
+AC_DEFUN([LC_HAVE_LSMCONTEXT_INIT], [
+	LB2_MSG_LINUX_TEST_RESULT([if lsmcontext_init is available],
+	[lsmcontext_init], [
+		AC_DEFINE(HAVE_LSMCONTEXT_INIT, 1,
+			[lsmcontext_init is available])
+	])
+]) # LC_HAVE_LSMCONTEXT_INIT
+
+#
+# LC_SECURITY_DENTRY_INIT_SECURTY_WITH_CTX
+#
+# repo: git://git.launchpad.net/~ubuntu-kernel/ubuntu/+source/linux/+git/jammy
+# kernel linux-hwe-5.19 commit 57d0004bc811254916be30f94c86d9607867deb0
+# LSM: Use lsmcontext in security_dentry_init_security
+#
+AC_DEFUN([LC_SRC_SECURITY_DENTRY_INIT_SECURTY_WITH_CTX], [
+	LB2_LINUX_TEST_SRC([security_dentry_init_security_with_ctx], [
+		#include <linux/security.h>
+	],[
+		struct dentry *dentry = NULL;
+		const struct qstr *name = NULL;
+		struct lsmcontext *ctx = NULL;
+		const char *xattr_name = "";
+
+		(void)security_dentry_init_security(dentry, 0, name,
+						    &xattr_name, ctx);
+	],[-Werror])
+])
+AC_DEFUN([LC_SECURITY_DENTRY_INIT_SECURTY_WITH_CTX], [
+	LB2_MSG_LINUX_TEST_RESULT([if security_dentry_init_security needs lsmcontext],
+	[security_dentry_init_security_with_ctx], [
+		AC_DEFINE(HAVE_SECURITY_DENTRY_INIT_SECURTY_WITH_CTX, 1,
+			[security_dentry_init_security needs lsmcontext])
+	])
+]) # LC_SECURITY_DENTRY_INIT_SECURTY_WITH_CTX
+
+#
+# LC_LSMCONTEXT_HAS_ID
+#
+# repo: git://git.launchpad.net/~ubuntu-kernel/ubuntu/+source/linux/+git/noble
+# commit dad7cffb719e45fd43121ade4ada90ff376c9cad
+# LSM stacking v39: LSM: Ensure the correct LSM context releaser
+#
+AC_DEFUN([LC_SRC_LSMCONTEXT_HAS_ID], [
+	LB2_LINUX_TEST_SRC([lsmcontext_has_id], [
+		#include <linux/security.h>
+	],[
+		((struct lsmcontext *)1)->id = 0;
+	],[-Werror])
+])
+AC_DEFUN([LC_LSMCONTEXT_HAS_ID], [
+	LB2_MSG_LINUX_TEST_RESULT([if lsmcontext has id],
+	[lsmcontext_has_id], [
+		AC_DEFINE(HAVE_LSMCONTEXT_HAS_ID, 1,
+			[lsmcontext has id])
+	])
+]) # LC_LSMCONTEXT_HAS_ID
+
+#
 # LC_HAVE_NO_LLSEEK
 #
 # Linux commit v5.19-rc2-6-g868941b14441
@@ -4726,6 +4800,7 @@ AC_DEFUN([LC_PROG_LINUX_SRC], [
 	# 6.8
 	LC_SRC_HAVE_DENTRY_D_CHILDREN
 	LC_SRC_HAVE_GENERIC_ERROR_REMOVE_FOLIO
+	LC_SRC_LSMCONTEXT_HAS_ID
 
 	# kernel patch to extend integrity interface
 	LC_SRC_BIO_INTEGRITY_PREP_FN
@@ -4975,20 +5050,15 @@ AC_DEFUN([LC_PROG_LINUX_RESULTS], [
 	LC_HAVE_VFS_SETXATTR_NON_CONST_VALUE
 	LC_HAVE_IOV_ITER_GET_PAGES_ALLOC2
 
-	# 6.4
-	LC_HAVE_IOV_ITER_IOVEC
-	LC_HAVE_IOVEC_WITH_IOV_MEMBER
-	LC_HAVE_CLASS_CREATE_MODULE_ARG
-	LC_HAVE_GET_EXPIRY_TIME64_T
-
 	# 6.1
 	LC_HAVE_GET_RANDOM_U32_AND_U64
 	LC_NFS_FILLDIR_USE_CTX_RETURN_BOOL
 	LC_HAVE_FILEMAP_GET_FOLIOS_CONTIG
 	LC_IOP_GET_INODE_ACL
 
-	# 6.8
-	LC_HAVE_DENTRY_D_CHILDREN
+	# 6.2
+	LC_HAVE_GET_RANDOM_U32_BELOW
+	LC_HAVE_ACL_WITH_DENTRY
 
 	# 6.3
 	LC_HAVE_MNT_IDMAP_ARG
@@ -4996,16 +5066,18 @@ AC_DEFUN([LC_PROG_LINUX_RESULTS], [
 	LC_HAVE_U64_CAPABILITY
 	LC_HAVE_FOLIO_BATCH_REINIT
 
+	# 6.4
+	LC_HAVE_IOV_ITER_IOVEC
+	LC_HAVE_IOVEC_WITH_IOV_MEMBER
+	LC_HAVE_CLASS_CREATE_MODULE_ARG
+	LC_HAVE_GET_EXPIRY_TIME64_T
+
 	# 6.5
 	LC_HAVE_FILEMAP_SPLICE_READ
 	LC_HAVE_ENUM_ITER_PIPE
 	LC_HAVE_GET_USER_PAGES_WITHOUT_VMA
 	LC_HAVE_FOLIO_BATCH
 	LC_HAVE_STRUCT_PAGEVEC
-
-	# 6.2
-	LC_HAVE_GET_RANDOM_U32_BELOW
-	LC_HAVE_ACL_WITH_DENTRY
 
 	# 6.6
 	LC_HAVE_FLUSH___WORKQUEUE
@@ -5021,6 +5093,7 @@ AC_DEFUN([LC_PROG_LINUX_RESULTS], [
 	# 6.8
 	LC_HAVE_DENTRY_D_CHILDREN
 	LC_HAVE_GENERIC_ERROR_REMOVE_FOLIO
+	LC_LSMCONTEXT_HAS_ID
 
 	# kernel patch to extend integrity interface
 	LC_BIO_INTEGRITY_PREP_FN
