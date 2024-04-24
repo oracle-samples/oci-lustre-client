@@ -12867,6 +12867,18 @@ test_118n()
 }
 run_test 118n "statfs() sends OST_STATFS requests in parallel"
 
+dio_readv_writev_support()
+{
+	# Kernels after 3.16 work:
+	(( $(version_code $(uname -r)) >= $(version_code 3.16) ))
+		return 0
+	# Lustre with LU-17524 works:
+	(( $OST1_VERSION > $(version_code 2.15.61.141) ))
+		return 0
+
+	skip "need readv/writev with O_DIRECT support"
+}
+
 test_119a() # bug 11737
 {
         BSIZE=$((512 * 1024))
@@ -13217,6 +13229,67 @@ test_119i()
 	done
 }
 run_test 119i "test unaligned aio at varying sizes"
+
+test_119j()
+{
+	(( $LINUX_VERSION_CODE > $(version_code 4.5.0) )) ||
+		skip "needs kernel > 4.5.0 for ki_flags support"
+
+	local rpcs
+	dd if=/dev/urandom of=$DIR/$tfile bs=8 count=1 || error "(0) dd failed"
+	sync
+	$LCTL set_param -n osc.*.rpc_stats=0
+	# Read from page cache, does not generate an rpc
+	dd if=$DIR/$tfile of=/dev/null bs=8 count=1 || error "(1) dd failed"
+	$LCTL get_param osc.*.rpc_stats
+	rpcs=($($LCTL get_param -n 'osc.*.rpc_stats' |
+		sed -n '/pages per rpc/,/^$/p' |
+		awk '/'$pages':/ { reads += $2; writes += $6 }; \
+		END { print reads,writes }'))
+	[[ ${rpcs[0]} == 0 ]] ||
+		error "(3) ${rpcs[0]} != 0 read RPCs"
+
+	# Test hybrid IO read
+	# Force next BIO as DIO
+	# This forces an RPC to the server
+	#define OBD_FAIL_LLITE_FORCE_BIO_AS_DIO	0x1429
+	$LCTL set_param fail_loc=0x1429
+	dd if=$DIR/$tfile of=/dev/null bs=8 count=1 || error "(4) dd failed"
+	$LCTL get_param osc.*.rpc_stats
+	rpcs=($($LCTL get_param -n 'osc.*.rpc_stats' |
+		sed -n '/pages per rpc/,/^$/p' |
+		awk '/'$pages':/ { reads += $2; writes += $6 }; \
+		END { print reads,writes }'))
+	[[ ${rpcs[0]} == 1 ]] ||
+		error "(5) ${rpcs[0]} != 1 read RPCs"
+
+	# Test hybrid IO write
+	#define OBD_FAIL_LLITE_FORCE_BIO_AS_DIO	0x1429
+	$LCTL set_param fail_loc=0x1429
+	#NB: We do not check for 0 write RPCs in the BIO case because that
+	# would make the test racey vs cache flushing
+	# but the DIO case is guaranteed to generate 1 write RPC
+	dd if=/dev/zero of=$DIR/$tfile bs=8 count=1 || error "(6) dd failed"
+	$LCTL get_param osc.*.rpc_stats
+	rpcs=($($LCTL get_param -n 'osc.*.rpc_stats' |
+		sed -n '/pages per rpc/,/^$/p' |
+		awk '/'$pages':/ { reads += $2; writes += $6 }; \
+		END { print reads,writes }'))
+	[[ ${rpcs[1]} == 1 ]] ||
+		error "(7) ${rpcs[0]} != 1 read RPCs"
+}
+run_test 119j "basic tests of hybrid IO switching"
+
+test_119m() {
+	dio_readv_writev_support
+
+	timeout 90s rwv -f $DIR/$tfile -Dw -n 3 0x80000 0x100000 0x180000 ||
+		error "DIO aligned writev test failed"
+	timeout 90s rwv -f $DIR/$tfile -Dr -v -n 2 0x180000 0x100000 ||
+		error "DIO aligned readv failed"
+	rm -f $DIR/$tfile
+}
+run_test 119m "Test DIO readv/writev: exercise iter duplication"
 
 test_120a() {
 	[ $PARALLEL == "yes" ] && skip "skip parallel run"
