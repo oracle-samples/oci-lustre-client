@@ -479,7 +479,9 @@ static int jobid_should_free_item(void *obj, void *data)
 static bool jobid_name_is_valid(char *jobid)
 {
 	const char *const lustre_reserved[] = { "ll_ping", "ptlrpc",
-						"ldlm", "ll_sa", NULL };
+											"ldlm", "ll_sa", "kworker",
+											"kswapd", "writeback", "irq",
+											"ksoftirq", "ll_ucp", NULL };
 	int i;
 
 	if (jobid[0] == '\0')
