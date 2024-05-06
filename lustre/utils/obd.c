@@ -5032,8 +5032,8 @@ int llog_poollist(char *fsname, char *poolname)
 	lpld.lpld_exists = false;
 	strncpy(lpld.lpld_fsname, fsname, sizeof(lpld.lpld_fsname) - 1);
 	if (poolname && poolname[0])
-		strncpy(lpld.lpld_poolname, poolname,
-			sizeof(lpld.lpld_poolname) - 1);
+		snprintf(lpld.lpld_poolname, sizeof(lpld.lpld_poolname), "%s",
+			 poolname);
 	snprintf(logname, sizeof(logname), "%s-client", fsname);
 	rc = jt_llog_print_iter(logname, 0, -1, llog_poollist_cb, &lpld, false,
 				false);

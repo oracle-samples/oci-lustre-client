@@ -4392,11 +4392,10 @@ static int lfs_setstripe_internal(int argc, char **argv,
 			lmu->lum_hash_type = lsa.lsa_pattern;
 		else
 			lmu->lum_hash_type = LMV_HASH_TYPE_UNKNOWN;
-		if (lsa.lsa_pool_name) {
-			strncpy(lmu->lum_pool_name, lsa.lsa_pool_name,
-				sizeof(lmu->lum_pool_name) - 1);
-			lmu->lum_pool_name[sizeof(lmu->lum_pool_name) - 1] = 0;
-		}
+
+		if (lsa.lsa_pool_name)
+			snprintf(lmu->lum_pool_name, sizeof(lmu->lum_pool_name),
+				 "%s", lsa.lsa_pool_name);
 		if (lsa.lsa_nr_tgts > 1) {
 			int i;
 
@@ -5732,8 +5731,8 @@ err_free:
 			 * We do check for empty pool because empty pool
 			 * is used to find V1 LOV attributes
 			 */
-			strncpy(param.fp_poolname, optarg, LOV_MAXPOOLNAME);
-			param.fp_poolname[LOV_MAXPOOLNAME] = '\0';
+			snprintf(param.fp_poolname, sizeof(param.fp_poolname),
+				 "%s", optarg);
 			param.fp_exclude_pool = !!neg_opt;
 			param.fp_check_pool = 1;
 			break;
@@ -7837,7 +7836,8 @@ quota_type:
 		case LFS_POOL_OPT:
 			if (lfs_verify_poolarg(optarg))
 				return -1;
-			strncpy(qctl->qc_poolname, optarg, LOV_MAXPOOLNAME);
+			snprintf(qctl->qc_poolname, LOV_MAXPOOLNAME + 1, "%s",
+				 optarg);
 			qctl->qc_cmd  = LUSTRE_Q_SETINFOPOOL;
 			break;
 		/* getopt prints error message for us when opterr != 0 */
@@ -8055,7 +8055,8 @@ quota_type_def:
 				rc = -1;
 				goto out;
 			}
-			strncpy(qctl->qc_poolname, optarg, LOV_MAXPOOLNAME);
+			snprintf(qctl->qc_poolname, LOV_MAXPOOLNAME + 1, "%s",
+				 optarg);
 			qctl->qc_cmd = qctl->qc_cmd == LUSTRE_Q_SETDEFAULT ?
 						LUSTRE_Q_SETDEFAULT_POOL :
 						LUSTRE_Q_SETQUOTAPOOL;
@@ -8145,8 +8146,8 @@ quota_type_def:
 
 		if (qctl->qc_cmd == LUSTRE_Q_SETQUOTAPOOL) {
 			tmp_qctl->qc_cmd = LUSTRE_Q_GETQUOTAPOOL;
-			strncpy(tmp_qctl->qc_poolname, qctl->qc_poolname,
-				LOV_MAXPOOLNAME);
+			snprintf(tmp_qctl->qc_poolname, LOV_MAXPOOLNAME + 1,
+				 "%s", qctl->qc_poolname);
 		} else {
 			tmp_qctl->qc_cmd  = LUSTRE_Q_GETQUOTA;
 		}
@@ -8931,8 +8932,8 @@ quota_type:
 					rc = -EINVAL;
 					goto out;
 				}
-				strncpy(qctl->qc_poolname, optarg,
-					LOV_MAXPOOLNAME);
+				snprintf(qctl->qc_poolname,
+					 LOV_MAXPOOLNAME + 1, "%s", optarg);
 				if (qctl->qc_cmd == LUSTRE_Q_GETINFO)
 					qctl->qc_cmd = LUSTRE_Q_GETINFOPOOL;
 				else
@@ -9052,7 +9053,8 @@ quota_type:
 			}
 			p++;
 			printf("Quotas for pool: %s\n", p);
-			strncpy(qctl->qc_poolname, p, LOV_MAXPOOLNAME);
+			snprintf(qctl->qc_poolname, LOV_MAXPOOLNAME + 1, "%s",
+				p);
 			rc = get_print_quota(mnt, name, qctl, verbose, quiet,
 					     human_readable, show_default);
 			if (rc)
