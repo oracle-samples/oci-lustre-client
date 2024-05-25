@@ -72,6 +72,24 @@
 #define bio_start_sector(bio) (bio->bi_sector)
 #endif
 
+#ifndef SLAB_MEM_SPREAD
+#define SLAB_MEM_SPREAD		0
+#endif
+
+#ifdef HAVE_STRUCT_FILE_LOCK_CORE
+#define C_FLC_TYPE	c.flc_type
+#define C_FLC_PID	c.flc_pid
+#define C_FLC_FILE	c.flc_file
+#define C_FLC_FLAGS	c.flc_flags
+#define C_FLC_OWNER	c.flc_owner
+#else
+#define C_FLC_TYPE	fl_type
+#define C_FLC_PID	fl_pid
+#define C_FLC_FILE	fl_file
+#define C_FLC_FLAGS	fl_flags
+#define C_FLC_OWNER	fl_owner
+#endif
+
 #ifndef HAVE_DENTRY_D_CHILD
 #define d_child			d_u.d_child
 #endif

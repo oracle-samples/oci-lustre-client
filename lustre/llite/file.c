@@ -4826,7 +4826,7 @@ ll_file_flock(struct file *file, int cmd, struct file_lock *file_lock)
 	struct md_op_data *op_data;
 	struct lustre_handle lockh = { 0 };
 	union ldlm_policy_data flock = { { 0 } };
-	int fl_type = file_lock->fl_type;
+	int fl_type = file_lock->C_FLC_TYPE;
 	ktime_t kstart = ktime_get();
 	__u64 flags = 0;
 	int rc;
@@ -4836,20 +4836,20 @@ ll_file_flock(struct file *file, int cmd, struct file_lock *file_lock)
 	CDEBUG(D_VFSTRACE, "VFS Op:inode="DFID" file_lock=%p\n",
 	       PFID(ll_inode2fid(inode)), file_lock);
 
-	if (file_lock->fl_flags & FL_FLOCK) {
+	if (file_lock->C_FLC_FLAGS & FL_FLOCK) {
 		LASSERT((cmd == F_SETLKW) || (cmd == F_SETLK));
 		/* flocks are whole-file locks */
 		flock.l_flock.end = OFFSET_MAX;
 		/* For flocks owner is determined by the local file desctiptor*/
-		flock.l_flock.owner = (unsigned long)file_lock->fl_file;
-	} else if (file_lock->fl_flags & FL_POSIX) {
-		flock.l_flock.owner = (unsigned long)file_lock->fl_owner;
+		flock.l_flock.owner = (unsigned long)file_lock->C_FLC_FILE;
+	} else if (file_lock->C_FLC_FLAGS & FL_POSIX) {
+		flock.l_flock.owner = (unsigned long)file_lock->C_FLC_OWNER;
 		flock.l_flock.start = file_lock->fl_start;
 		flock.l_flock.end = file_lock->fl_end;
 	} else {
 		RETURN(-EINVAL);
 	}
-	flock.l_flock.pid = file_lock->fl_pid;
+	flock.l_flock.pid = file_lock->C_FLC_PID;
 
 #if defined(HAVE_LM_COMPARE_OWNER) || defined(lm_compare_owner)
 	/* Somewhat ugly workaround for svc lockd.
@@ -4860,7 +4860,7 @@ ll_file_flock(struct file *file, int cmd, struct file_lock *file_lock)
 	 * conflict with normal locks is unlikely since pid space and
 	 * pointer space for current->files are not intersecting */
 	if (file_lock->fl_lmops && file_lock->fl_lmops->lm_compare_owner)
-		flock.l_flock.owner = (unsigned long)file_lock->fl_pid;
+		flock.l_flock.owner = (unsigned long)file_lock->C_FLC_PID;
 #endif
 
 	switch (fl_type) {
@@ -4912,7 +4912,7 @@ ll_file_flock(struct file *file, int cmd, struct file_lock *file_lock)
 
 	/* Save the old mode so that if the mode in the lock changes we
 	 * can decrement the appropriate reader or writer refcount. */
-	file_lock->fl_type = einfo.ei_mode;
+	file_lock->C_FLC_TYPE = einfo.ei_mode;
 
         op_data = ll_prep_md_op_data(NULL, inode, NULL, NULL, 0, 0,
                                      LUSTRE_OPC_ANY, NULL);
@@ -4929,23 +4929,23 @@ ll_file_flock(struct file *file, int cmd, struct file_lock *file_lock)
 
 	/* Restore the file lock type if not TEST lock. */
 	if (!(flags & LDLM_FL_TEST_LOCK))
-		file_lock->fl_type = fl_type;
+		file_lock->C_FLC_TYPE = fl_type;
 
 #ifdef HAVE_LOCKS_LOCK_FILE_WAIT
-	if ((rc == 0 || file_lock->fl_type == F_UNLCK) &&
+	if ((rc == 0 || file_lock->C_FLC_TYPE == F_UNLCK) &&
 	    !(flags & LDLM_FL_TEST_LOCK))
 		rc2  = locks_lock_file_wait(file, file_lock);
 #else
-        if ((file_lock->fl_flags & FL_FLOCK) &&
-            (rc == 0 || file_lock->fl_type == F_UNLCK))
+        if ((file_lock->C_FLC_FLAGS & FL_FLOCK) &&
+            (rc == 0 || file_lock->C_FLC_TYPE == F_UNLCK))
 		rc2  = flock_lock_file_wait(file, file_lock);
-        if ((file_lock->fl_flags & FL_POSIX) &&
-            (rc == 0 || file_lock->fl_type == F_UNLCK) &&
+        if ((file_lock->C_FLC_FLAGS & FL_POSIX) &&
+            (rc == 0 || file_lock->C_FLC_TYPE == F_UNLCK) &&
             !(flags & LDLM_FL_TEST_LOCK))
 		rc2  = posix_lock_file_wait(file, file_lock);
 #endif /* HAVE_LOCKS_LOCK_FILE_WAIT */
 
-	if (rc2 && file_lock->fl_type != F_UNLCK) {
+	if (rc2 && file_lock->C_FLC_TYPE != F_UNLCK) {
 		einfo.ei_mode = LCK_NL;
 		md_enqueue(sbi->ll_md_exp, &einfo, &flock, op_data,
 			   &lockh, flags);
