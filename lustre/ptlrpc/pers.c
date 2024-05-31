@@ -43,11 +43,12 @@
 void ptlrpc_fill_bulk_md(struct lnet_md *md, struct ptlrpc_bulk_desc *desc,
 			 int mdidx)
 {
-	unsigned int start = desc->bd_mds_off[mdidx];
+	unsigned int start;
 
 	BUILD_BUG_ON(PTLRPC_MAX_BRW_PAGES >= LI_POISON);
 
-	LASSERT(mdidx < desc->bd_md_max_brw);
+	LASSERTF(mdidx < desc->bd_md_max_brw, "%d < max: %d\n",
+		 mdidx, desc->bd_md_max_brw);
 	LASSERT(desc->bd_iov_count <= PTLRPC_MAX_BRW_PAGES);
 
 	/* just send a lnet header */
@@ -57,6 +58,11 @@ void ptlrpc_fill_bulk_md(struct lnet_md *md, struct ptlrpc_bulk_desc *desc,
 		md->start = NULL;
 		return;
 	}
+
+	if (desc->bd_is_rdma)
+		md->options |= LNET_MD_GPU_ADDR;
+
+	start = desc->bd_mds_off[mdidx];
 
 	if (mdidx == (desc->bd_md_count - 1))
 		md->length = desc->bd_iov_count - start;

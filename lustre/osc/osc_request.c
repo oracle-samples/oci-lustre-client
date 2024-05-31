@@ -1499,6 +1499,33 @@ static inline void osc_release_bounce_pages(struct brw_page **pga,
 #endif
 }
 
+static inline bool is_interop_required(u64 foffset, u32 off0, u32 npgs,
+				       struct brw_page **pga)
+{
+	struct brw_page *pg0 = pga[0];
+	struct brw_page *pgN = pga[npgs - 1];
+	const u32 nob = ((npgs - 2) << PAGE_SHIFT) + pg0->bp_count +
+			pgN->bp_count;
+
+	return ((nob + off0) >= LNET_MTU &&
+	    cl_io_nob_aligned(foffset, nob, MD_MAX_INTEROP_PAGE_SIZE) !=
+	    cl_io_nob_aligned(foffset, nob, MD_MIN_INTEROP_PAGE_SIZE));
+}
+
+static inline u32 interop_pages(u64 foffset, u32 npgs, struct brw_page **pga)
+{
+	u32 off0;
+
+	if (foffset == 0 || npgs < 15)
+		return 0;
+
+	off0 = (foffset & (MD_MAX_INTEROP_PAGE_SIZE - 1));
+	if (is_interop_required(foffset, off0, npgs, pga))
+		return off0 >> MD_MIN_INTEROP_PAGE_SHIFT;
+
+	return 0;
+}
+
 static int
 osc_brw_prep_request(int cmd, struct client_obd *cli, struct obdo *oa,
 		     u32 page_count, struct brw_page **pga,
@@ -1517,15 +1544,23 @@ osc_brw_prep_request(int cmd, struct client_obd *cli, struct obdo *oa,
 	const char *obd_name = cli->cl_import->imp_obd->obd_name;
 	struct inode *inode = NULL;
 	bool directio = false;
+	bool gpu = 0;
 	bool enable_checksum = true;
 	struct cl_page *clpage;
+	u64 foffset = 0;
 
 	ENTRY;
 	if (pga[0]->bp_page) {
 		clpage = oap2cl_page(brw_page2oap(pga[0]));
 		inode = clpage->cp_inode;
-		if (clpage->cp_type == CPT_TRANSIENT)
+		if (clpage->cp_type == CPT_TRANSIENT) {
 			directio = true;
+			/* When page size interop logic is not supported by the
+			 * remote server use the old logic.
+			 */
+			if (imp_connect_unaligned_dio(cli->cl_import))
+				foffset = pga[0]->bp_off;
+		}
 	}
 	if (OBD_FAIL_CHECK(OBD_FAIL_OSC_BRW_PREP_REQ))
 		RETURN(-ENOMEM); /* Recoverable */
@@ -1711,6 +1746,7 @@ retry_encrypt:
 	if (brw_page2oap(pga[0])->oap_brw_flags & OBD_BRW_RDMA_ONLY) {
 		enable_checksum = false;
 		short_io_size = 0;
+		gpu = 1;
 	}
 
 	/* Check if read/write is small enough to be a short io. */
@@ -1755,14 +1791,18 @@ retry_encrypt:
 		OST_BULK_PORTAL,
 		&ptlrpc_bulk_kiov_pin_ops);
 
-        if (desc == NULL)
-                GOTO(out, rc = -ENOMEM);
-        /* NB request now owns desc and will free it when it gets freed */
+	if (desc == NULL)
+		GOTO(out, rc = -ENOMEM);
+	/* NB request now owns desc and will free it when it gets freed */
+	desc->bd_is_rdma = gpu;
+	if (directio && foffset)
+		desc->bd_md_offset = interop_pages(foffset, page_count, pga);
+
 no_bulk:
-        body = req_capsule_client_get(pill, &RMF_OST_BODY);
-        ioobj = req_capsule_client_get(pill, &RMF_OBD_IOOBJ);
-        niobuf = req_capsule_client_get(pill, &RMF_NIOBUF_REMOTE);
-        LASSERT(body != NULL && ioobj != NULL && niobuf != NULL);
+	body = req_capsule_client_get(pill, &RMF_OST_BODY);
+	ioobj = req_capsule_client_get(pill, &RMF_OBD_IOOBJ);
+	niobuf = req_capsule_client_get(pill, &RMF_NIOBUF_REMOTE);
+	LASSERT(body != NULL && ioobj != NULL && niobuf != NULL);
 
 	lustre_set_wire_obdo(&req->rq_import->imp_connect_data, &body->oa, oa);
 
@@ -1774,18 +1814,6 @@ no_bulk:
 	 * other process logic */
 	body->oa.o_uid = oa->o_uid;
 	body->oa.o_gid = oa->o_gid;
-
-	obdo_to_ioobj(oa, ioobj);
-	ioobj->ioo_bufcnt = niocount;
-	/* The high bits of ioo_max_brw tells server _maximum_ number of bulks
-	 * that might be send for this request.  The actual number is decided
-	 * when the RPC is finally sent in ptlrpc_register_bulk(). It sends
-	 * "max - 1" for old client compatibility sending "0", and also so the
-	 * the actual maximum is a power-of-two number, not one less. LU-1431 */
-	if (desc != NULL)
-		ioobj_max_brw_set(ioobj, desc->bd_md_max_brw);
-	else /* short io */
-		ioobj_max_brw_set(ioobj, 0);
 
 	if (inode && IS_ENCRYPTED(inode) &&
 	    llcrypt_has_encryption_key(inode) &&
@@ -1807,35 +1835,35 @@ no_bulk:
 		       short_io_size);
 		if (opc == OST_WRITE) {
 			short_io_buf = req_capsule_client_get(pill,
-							      &RMF_SHORT_IO);
+							      				  &RMF_SHORT_IO);
 			LASSERT(short_io_buf != NULL);
 		}
 	}
 
 	LASSERT(page_count > 0);
 	pg_prev = pga[0];
-        for (requested_nob = i = 0; i < page_count; i++, niobuf++) {
-                struct brw_page *pg = pga[i];
+    for (requested_nob = i = 0; i < page_count; i++, niobuf++) {
+        struct brw_page *pg = pga[i];
 		int poff = pg->bp_off & ~PAGE_MASK;
 
                 LASSERT(pg->bp_count > 0);
                 /* make sure there is no gap in the middle of page array */
 		LASSERTF(page_count == 1 ||
-			 (ergo(i == 0, poff + pg->bp_count == PAGE_SIZE) &&
-			  ergo(i > 0 && i < page_count - 1,
+				 (ergo(i == 0, poff + pg->bp_count == PAGE_SIZE) &&
+				  ergo(i > 0 && i < page_count - 1,
 			       poff == 0 && pg->bp_count == PAGE_SIZE)   &&
-			  ergo(i == page_count - 1, poff == 0)),
-			 "i: %d/%d pg: %p off: %llu, count: %u\n",
-			 i, page_count, pg, pg->bp_off, pg->bp_count);
-                LASSERTF(i == 0 || pg->bp_off > pg_prev->bp_off,
-			 "i %d p_c %u pg %p [pri %lu ind %lu] off %llu"
-			 " prev_pg %p [pri %lu ind %lu] off %llu\n",
-                         i, page_count,
-                         pg->bp_page, page_private(pg->bp_page), pg->bp_page->index, pg->bp_off,
-                         pg_prev->bp_page, page_private(pg_prev->bp_page),
-                         pg_prev->bp_page->index, pg_prev->bp_off);
-                LASSERT((pga[0]->bp_flag & OBD_BRW_SRVLOCK) ==
-                        (pg->bp_flag & OBD_BRW_SRVLOCK));
+				  ergo(i == page_count - 1, poff == 0)),
+				  "i: %d/%d pg: %p off: %llu, count: %u\n",
+				 i, page_count, pg, pg->bp_off, pg->bp_count);
+        LASSERTF(i == 0 || pg->bp_off > pg_prev->bp_off,
+				 "i %d p_c %u pg %p [pri %lu ind %lu] off %llu"
+				 " prev_pg %p [pri %lu ind %lu] off %llu\n",
+                i, page_count,
+				pg->bp_page, page_private(pg->bp_page), pg->bp_page->index, pg->bp_off,
+				pg_prev->bp_page, page_private(pg_prev->bp_page),
+				pg_prev->bp_page->index, pg_prev->bp_off);
+        LASSERT((pga[0]->bp_flag & OBD_BRW_SRVLOCK) ==
+                (pg->bp_flag & OBD_BRW_SRVLOCK));
 		if (short_io_size != 0 && opc == OST_WRITE) {
 			unsigned char *ptr = kmap_atomic(pg->bp_page);
 
@@ -1846,59 +1874,78 @@ no_bulk:
 			kunmap_atomic(ptr);
 		} else if (short_io_size == 0) {
 			desc->bd_frag_ops->add_kiov_frag(desc, pg->bp_page, poff,
-							 pg->bp_count);
+							 				 pg->bp_count);
 		}
 		requested_nob += pg->bp_count;
 
-                if (i > 0 && can_merge_pages(pg_prev, pg)) {
-                        niobuf--;
+		if (i > 0 && can_merge_pages(pg_prev, pg)) {
+			niobuf--;
 			niobuf->rnb_len += pg->bp_count;
 		} else {
 			niobuf->rnb_offset = pg->bp_off;
 			niobuf->rnb_len    = pg->bp_count;
 			niobuf->rnb_flags  = pg->bp_flag;
-                }
-                pg_prev = pg;
         }
+        pg_prev = pg;
+    }
 
-        LASSERTF((void *)(niobuf - niocount) ==
-                req_capsule_client_get(&req->rq_pill, &RMF_NIOBUF_REMOTE),
-                "want %p - real %p\n", req_capsule_client_get(&req->rq_pill,
-                &RMF_NIOBUF_REMOTE), (void *)(niobuf - niocount));
+	obdo_to_ioobj(oa, ioobj);
+	ioobj->ioo_bufcnt = niocount;
 
-        osc_announce_cached(cli, &body->oa, opc == OST_WRITE ? requested_nob:0);
-        if (resend) {
-                if ((body->oa.o_valid & OBD_MD_FLFLAGS) == 0) {
-                        body->oa.o_valid |= OBD_MD_FLFLAGS;
-                        body->oa.o_flags = 0;
-                }
-                body->oa.o_flags |= OBD_FL_RECOV_RESEND;
-        }
+	/* The high bits of ioo_max_brw tells server _maximum_ number of bulks
+	 * that might be send for this request.  The actual number is decided
+	 * when the RPC is finally sent in ptlrpc_register_bulk(). It sends
+	 * "max - 1" for old client compatibility sending "0", and also so the
+	 * the actual maximum is a power-of-two number, not one less. LU-1431
+	 *
+	 * The low bits are reserved for md flags used for interopability, Ex:
+	 *  - OBD_IOOBJ_INTEROP_PAGE_ALIGNMENT
+	 */
+	if (desc)
+		ioobj_max_brw_set(ioobj, desc->bd_md_max_brw,
+				  desc->bd_md_offset);
+	else
+		ioobj_max_brw_set(ioobj, 0, 0); /* short io */
 
-        if (osc_should_shrink_grant(cli))
-                osc_shrink_grant_local(cli, &body->oa);
+	LASSERTF((void *)(niobuf - niocount) ==
+		 req_capsule_client_get(&req->rq_pill, &RMF_NIOBUF_REMOTE),
+		 "want %px - real %px\n",
+		 req_capsule_client_get(&req->rq_pill, &RMF_NIOBUF_REMOTE),
+		 (void *)(niobuf - niocount));
+
+	osc_announce_cached(cli, &body->oa, opc == OST_WRITE ? requested_nob:0);
+	if (resend) {
+		if ((body->oa.o_valid & OBD_MD_FLFLAGS) == 0) {
+				body->oa.o_valid |= OBD_MD_FLFLAGS;
+				body->oa.o_flags = 0;
+		}
+		body->oa.o_flags |= OBD_FL_RECOV_RESEND;
+	}
+
+	if (osc_should_shrink_grant(cli))
+			osc_shrink_grant_local(cli, &body->oa);
 
 	if (!cli->cl_checksum || sptlrpc_flavor_has_bulk(&req->rq_flvr))
 		enable_checksum = false;
 
         /* size[REQ_REC_OFF] still sizeof (*body) */
         if (opc == OST_WRITE) {
-                if (enable_checksum) {
-                        /* store cl_cksum_type in a local variable since
-                         * it can be changed via lprocfs */
-			enum cksum_types cksum_type = cli->cl_cksum_type;
+			if (enable_checksum) {
+				/* store cl_cksum_type in a local variable since
+					* it can be changed via lprocfs */
+				enum cksum_types cksum_type = cli->cl_cksum_type;
 
-                        if ((body->oa.o_valid & OBD_MD_FLFLAGS) == 0)
-                                body->oa.o_flags = 0;
+				if ((body->oa.o_valid & OBD_MD_FLFLAGS) == 0)
+						body->oa.o_flags = 0;
 
-			body->oa.o_flags |= obd_cksum_type_pack(obd_name,
-								cksum_type);
-                        body->oa.o_valid |= OBD_MD_FLCKSUM | OBD_MD_FLFLAGS;
+				body->oa.o_flags |= obd_cksum_type_pack(obd_name,
+														cksum_type);
+                body->oa.o_valid |= OBD_MD_FLCKSUM | OBD_MD_FLFLAGS;
 
 			rc = osc_checksum_bulk_rw(obd_name, cksum_type,
-						  requested_nob, page_count,
-						  pga, OST_WRITE,
-						  &body->oa.o_cksum, resend);
+									  requested_nob, page_count,
+						  			  pga, OST_WRITE,
+						  			  &body->oa.o_cksum, resend);
 			if (rc < 0) {
 				CDEBUG(D_PAGE, "failed to checksum: rc = %d\n",
 				       rc);
@@ -1912,28 +1959,28 @@ no_bulk:
 			oa->o_valid |= OBD_MD_FLCKSUM | OBD_MD_FLFLAGS;
 			oa->o_flags |= obd_cksum_type_pack(obd_name,
 							   cksum_type);
-                } else {
-                        /* clear out the checksum flag, in case this is a
-                         * resend but cl_checksum is no longer set. b=11238 */
-                        oa->o_valid &= ~OBD_MD_FLCKSUM;
-                }
-                oa->o_cksum = body->oa.o_cksum;
-                /* 1 RC per niobuf */
-                req_capsule_set_size(pill, &RMF_RCS, RCL_SERVER,
-                                     sizeof(__u32) * niocount);
-        } else {
-                if (enable_checksum) {
-                        if ((body->oa.o_valid & OBD_MD_FLFLAGS) == 0)
-                                body->oa.o_flags = 0;
-			body->oa.o_flags |= obd_cksum_type_pack(obd_name,
-				cli->cl_cksum_type);
-                        body->oa.o_valid |= OBD_MD_FLCKSUM | OBD_MD_FLFLAGS;
+		} else {
+				/* clear out the checksum flag, in case this is a
+					* resend but cl_checksum is no longer set. b=11238 */
+				oa->o_valid &= ~OBD_MD_FLCKSUM;
 		}
+		oa->o_cksum = body->oa.o_cksum;
+		/* 1 RC per niobuf */
+		req_capsule_set_size(pill, &RMF_RCS, RCL_SERVER,
+								sizeof(__u32) * niocount);
+	} else {
+			if (enable_checksum) {
+				if ((body->oa.o_valid & OBD_MD_FLFLAGS) == 0)
+						body->oa.o_flags = 0;
+					body->oa.o_flags |= obd_cksum_type_pack(obd_name,
+							cli->cl_cksum_type);
+					body->oa.o_valid |= OBD_MD_FLCKSUM | OBD_MD_FLFLAGS;
+			}
 
-		/* Client cksum has been already copied to wire obdo in previous
-		 * lustre_set_wire_obdo(), and in the case a bulk-read is being
-		 * resent due to cksum error, this will allow Server to
-		 * check+dump pages on its side */
+			/* Client cksum has been already copied to wire obdo in previous
+			* lustre_set_wire_obdo(), and in the case a bulk-read is being
+			* resent due to cksum error, this will allow Server to
+			* check+dump pages on its side */
 	}
 	ptlrpc_request_set_replen(req);
 
@@ -1955,8 +2002,8 @@ no_bulk:
         RETURN(0);
 
  out:
-        ptlrpc_req_finished(req);
-        RETURN(rc);
+    ptlrpc_req_finished(req);
+    RETURN(rc);
 }
 
 char dbgcksum_file_name[PATH_MAX];

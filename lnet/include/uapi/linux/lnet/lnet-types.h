@@ -436,8 +436,9 @@ struct lnet_md {
 /* Max Transfer Unit (minimum supported everywhere).
  * CAVEAT EMPTOR, with multinet (i.e. routers forwarding between networks)
  * these limits are system wide and not interface-local. */
-#define LNET_MTU_BITS	20
-#define LNET_MTU	(1 << LNET_MTU_BITS)
+#define LNET_MTU_BITS		20
+#define LNET_MTU		(1u << LNET_MTU_BITS)
+#define LNET_MTU_IOV_LIMIT	(1u << (LNET_MTU_BITS - PAGE_SHIFT))
 
 /**
  * Options for the MD structure. See struct lnet_md::options.
@@ -466,6 +467,8 @@ struct lnet_md {
 #define LNET_MD_NO_TRACK_RESPONSE    (1 << 11)
 /** See struct lnet_md::options. */
 #define LNET_MD_GNILND               (1 << 12)
+/** Special page mapping handling */
+#define LNET_MD_GPU_ADDR			 (1 << 13)
 
 /** Infinite threshold on MD operations. See struct lnet_md::threshold */
 #define LNET_MD_THRESH_INF	 (-1)
