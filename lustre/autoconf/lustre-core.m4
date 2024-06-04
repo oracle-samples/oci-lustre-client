@@ -3836,7 +3836,8 @@ AC_DEFUN([LC_SRC_HAVE_IOVEC_WITH_IOV_MEMBER], [
 ])
 AC_DEFUN([LC_HAVE_IOVEC_WITH_IOV_MEMBER], [
 	AC_MSG_CHECKING([if 'iov_iter_iovec' is available])
-	LB2_LINUX_TEST_RESULT([iov_iter_has___iov_member], [
+	LB2_MSG_LINUX_TEST_RESULT([if 'iov_iter()' is available],
+	[iov_iter_has___iov_member], [
 		AC_DEFINE(HAVE___IOV_MEMBER, __iov,
 			['struct iov_iter' has '__iov' member])
 		AC_DEFINE(HAVE_ITER_IOV, 1,
@@ -4163,6 +4164,86 @@ AC_DEFUN([LC_HAVE_LOCKS_LOCK_FILE_WAIT_IN_FILELOCK], [
 			[linux/filelock.h is present])
 	])
 ]) # LC_HAVE_LOCKS_LOCK_FILE_WAIT_IN_FILELOCK
+
+#
+# LC_HAVE_FOLIO_BATCH_REINIT
+#
+# linux kernel v6.2-rc4-254-g811561288397
+#   mm: pagevec: add folio_batch_reinit()
+#
+AC_DEFUN([LC_SRC_HAVE_FOLIO_BATCH_REINIT], [
+	LB2_LINUX_TEST_SRC([folio_batch_reinit_exists], [
+		#include <linux/pagevec.h>
+	],[
+		struct folio_batch fbatch __attribute__ ((unused));
+
+		folio_batch_reinit(&fbatch);
+	],[-Werror])
+])
+AC_DEFUN([LC_HAVE_FOLIO_BATCH_REINIT], [
+	LB2_MSG_LINUX_TEST_RESULT([if 'folio_batch_reinit' is available],
+	[folio_batch_reinit_exists], [
+		AC_DEFINE(HAVE_FOLIO_BATCH_REINIT, 1,
+			['folio_batch_reinit' is available])
+	])
+]) # LC_HAVE_FOLIO_BATCH_REINIT
+
+#
+# LC_HAVE_IOV_ITER_IOVEC
+#
+# linux kernel v6.3-rc4-32-g6eb203e1a868
+#   iov_iter: remove iov_iter_iovec()
+#
+AC_DEFUN([LC_SRC_HAVE_IOV_ITER_IOVEC], [
+	LB2_LINUX_TEST_SRC([iov_iter_iovec_exists], [
+		#include <linux/uio.h>
+	],[
+		struct iovec iov __attribute__ ((unused));
+		struct iov_iter i = { };
+
+		iov = iov_iter_iovec(&i);
+	],[-Werror])
+])
+AC_DEFUN([LC_HAVE_IOV_ITER_IOVEC], [
+	LB2_MSG_LINUX_TEST_RESULT([if 'iov_iter_iovec' is available],
+	[iov_iter_iovec_exists], [
+		AC_DEFINE(HAVE_IOV_ITER_IOVEC, 1,
+			['iov_iter_iovec' is available])
+	])
+]) # LC_HAVE_IOV_ITER_IOVEC
+
+#
+# LC_HAVE_IOVEC_WITH_IOV_MEMBER
+#
+# linux kernel v6.3-rc4-34-g747b1f65d39a
+#   iov_iter: overlay struct iovec and ubuf/len
+# This renames iov_iter member iov to __iov and now __iov == __ubuf_iovec
+# And provides the iov_iter() accessor to return __iov or __ubuf_iovec
+#
+AC_DEFUN([LC_SRC_HAVE_IOVEC_WITH_IOV_MEMBER], [
+	LB2_LINUX_TEST_SRC([iov_iter_has___iov_member], [
+		#include <linux/uio.h>
+	],[
+		struct iov_iter iter = { };
+		size_t len __attribute__ ((unused));
+
+		len = iter.__iov->iov_len;
+	],[-Werror])
+])
+AC_DEFUN([LC_HAVE_IOVEC_WITH_IOV_MEMBER], [
+	LB2_MSG_LINUX_TEST_RESULT([if 'iov_iter()' is available],
+	[iov_iter_has___iov_member], [
+		AC_DEFINE(HAVE___IOV_MEMBER, __iov,
+			['struct iov_iter' has '__iov' member])
+		AC_DEFINE(HAVE_ITER_IOV, 1,
+			[iter_iov() is available])
+	],[
+		AC_DEFINE(iter_iov(iter), (iter)->__iov,
+			['iov_iter()' provides iov])
+		AC_DEFINE(__iov, iov,
+			['struct iov_iter' has 'iov' member])
+	])
+]) # LC_HAVE_IOVEC_WITH_IOV_MEMBER
 
 #
 # LC_HAVE_FILEMAP_SPLICE_READ
@@ -4800,20 +4881,15 @@ AC_DEFUN([LC_PROG_LINUX_SRC], [
 	LC_SRC_HAVE_IOV_ITER_GET_PAGES_ALLOC2
 	LC_SRC_HAVE_USER_BACKED_ITER
 
-	# 6.4
-	LC_SRC_HAVE_IOV_ITER_IOVEC
-	LC_SRC_HAVE_IOVEC_WITH_IOV_MEMBER
-	LC_SRC_HAVE_CLASS_CREATE_MODULE_ARG
-	LC_SRC_HAVE_GET_EXPIRY_TIME64_T
-
 	# 6.1
 	LC_SRC_HAVE_GET_RANDOM_U32_AND_U64
 	LC_SRC_NFS_FILLDIR_USE_CTX_RETURN_BOOL
 	LC_SRC_HAVE_FILEMAP_GET_FOLIOS_CONTIG
 	LC_SRC_IOP_GET_INODE_ACL
 
-	# 6.8
-	LC_SRC_HAVE_DENTRY_D_CHILDREN
+	# 6.2
+	LC_SRC_HAVE_GET_RANDOM_U32_BELOW
+	LC_SRC_HAVE_ACL_WITH_DENTRY
 
 	# 6.3
 	LC_SRC_HAVE_MNT_IDMAP_ARG
@@ -4821,16 +4897,18 @@ AC_DEFUN([LC_PROG_LINUX_SRC], [
 	LC_SRC_HAVE_U64_CAPABILITY
 	LC_SRC_HAVE_FOLIO_BATCH_REINIT
 
+	# 6.4
+	LC_SRC_HAVE_IOV_ITER_IOVEC
+	LC_SRC_HAVE_IOVEC_WITH_IOV_MEMBER
+	LC_SRC_HAVE_CLASS_CREATE_MODULE_ARG
+	LC_SRC_HAVE_GET_EXPIRY_TIME64_T
+
 	# 6.5
 	LC_SRC_HAVE_FILEMAP_SPLICE_READ
 	LC_SRC_HAVE_ENUM_ITER_PIPE
 	LC_SRC_HAVE_GET_USER_PAGES_WITHOUT_VMA
 	LC_SRC_HAVE_FOLIO_BATCH
 	LC_SRC_HAVE_STRUCT_PAGEVEC
-
-	# 6.2
-	LC_SRC_HAVE_GET_RANDOM_U32_BELOW
-	LC_SRC_HAVE_ACL_WITH_DENTRY
 
 	# 6.6
 	LC_SRC_HAVE_FLUSH___WORKQUEUE
