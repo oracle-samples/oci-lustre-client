@@ -978,10 +978,7 @@ void cl_page_list_disown(const struct lu_env *env, struct cl_page_list *plist)
 		/*
 		 * XXX __cl_page_disown() will fail if page is not locked.
 		 */
-		if (page->cp_type == CPT_CACHEABLE)
-			__cl_page_disown(env, page);
-		lu_ref_del_at(&page->cp_reference, &page->cp_queue_ref, "queue",
-			      plist);
+		__cl_page_disown(env, page);
 		cl_page_put(env, page);
 	}
 	EXIT;
