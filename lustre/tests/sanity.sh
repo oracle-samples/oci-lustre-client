@@ -39,10 +39,12 @@ init_test_env "$@"
 init_logging
 
 ALWAYS_EXCEPT="$SANITY_EXCEPT "
-# bug number for skipped test: LU-9693 LU-6493 LU-9693
-ALWAYS_EXCEPT+="               42a     42b     42c "
-# bug number:    LU-8411 LU-16515 LU-16515
-ALWAYS_EXCEPT+=" 407     118c     118d"
+always_except LU-9693  42a 42c
+always_except LU-6493  42b
+always_except LU-16515 118c 118d
+always_except LU-8411  407
+always_except LU-17525 56x 56xa 56xb
+always_except LU-18032 119i
 
 if $SHARED_KEY; then
 	# bug number:    LU-14181 LU-14181
@@ -13239,6 +13241,8 @@ test_119h()
 }
 run_test 119h "basic tests of memory unaligned dio"
 
+# Unaligned AIO is disabled and may not be reenabled
+# See LU-18032
 # aiocp with the '-a' option makes testing memory unaligned aio trivial
 test_119i()
 {
@@ -25414,9 +25418,10 @@ test_398d() { #  LU-13846
 	diff $DIR/$tfile $aio_file || error "file diff after aiocp"
 
 	# test memory unaligned aio
-	aiocp -a 512 -b 64M -s 64M -f O_DIRECT $DIR/$tfile $aio_file ||
-		error "unaligned aio failed"
-	diff $DIR/$tfile $aio_file || error "file diff after aiocp"
+	# LU-18032 - unaligned AIO is disabled
+	#aiocp -a 512 -b 64M -s 64M -f O_DIRECT $DIR/$tfile $aio_file ||
+	#	error "unaligned aio failed"
+	#diff $DIR/$tfile $aio_file || error "file diff after aiocp"
 
 	rm -f $DIR/$tfile $aio_file
 }
