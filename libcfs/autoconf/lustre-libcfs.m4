@@ -1015,6 +1015,31 @@ AC_DEFUN([LIBCFS_HOTPLUG_STATE_MACHINE], [
 ]) # LIBCFS_HOTPLUG_STATE_MACHINE
 
 #
+# LIBCFS_HAVE_NODE_NR_WRITEBACK
+#
+# kernel v4.10-rc1 commit 11fb998986a72aa7e997d96d63d52582a01228c5
+# mm: move most file-based accounting to the node
+# i.e. NR_UNSTABLE_NFS and NR_WRITEBACK are moved into node_stat_item enum
+#
+AC_DEFUN([LIBCFS_SRC_HAVE_NODE_NR_WRITEBACK], [
+	LB2_LINUX_TEST_SRC([node_nr_writeback_exists], [
+		#include <linux/mmzone.h>
+	],[
+		enum node_stat_item item = NR_WRITEBACK;
+		(void)item;
+	],[-Werror])
+])
+AC_DEFUN([LIBCFS_HAVE_NODE_NR_WRITEBACK], [
+	LB2_MSG_LINUX_TEST_RESULT([if NR_WRITEBACK node_stat_item enum is available],
+	[node_nr_writeback_exists], [
+		AC_DEFINE(HAVE_NODE_NR_WRITEBACK, 1,
+			[NR_WRITEBACK is moved into the node.])
+	])
+]) # LIBCFS_HAVE_NODE_NR_WRITEBACK
+
+#
+# LIBCFS_REFCOUNT_T
+#
 # Kernel version 4.10-rc3 commit f405df5de3170c00e5c54f8b7cf4766044a032ba
 # introduced refcount_t which is atomic_t plus over flow guards.
 #
@@ -1027,6 +1052,27 @@ LB_CHECK_LINUX_HEADER([linux/refcount.h], [
 ])
 EXTRA_KCFLAGS="$tmp_flags"
 ]) # LIBCFS_REFCOUNT_T
+
+#
+# HAVE_NLA_PUT_U64_64BIT
+#
+# Kernel version 4.10 commit 73520786b0793c612ef4de3e9addb2ec411bea20
+# added nla_put_u64_64bit
+#
+AC_DEFUN([LIBCFS_SRC_NLA_PUT_U64_64BIT], [
+	LB2_LINUX_TEST_SRC([nla_put_u64_64bit], [
+		#include <net/genetlink.h>
+	],[
+		nla_put_u64_64bit(NULL, 0, 0, 0)
+	])
+])
+AC_DEFUN([LIBCFS_NLA_PUT_U64_64BIT], [
+	LB2_MSG_LINUX_TEST_RESULT([if 'nla_put_u64_64bit()' exists],
+	[nla_put_u64_64bit], [
+		AC_DEFINE(HAVE_NLA_PUT_U64_64BIT, 1,
+			['nla_put_u64_64bit' is available])
+	])
+]) # LIBCFS_NLA_PUT_U64_64BIT
 
 #
 # Kernel version 4.12 commit 499118e966f1d2150bd66647c8932343c4e9a0b8
@@ -1923,6 +1969,22 @@ AC_DEFUN([LIBCFS_HAVE_NR_UNSTABLE_NFS], [
 ]) # LIBCFS_HAVE_NR_UNSTABLE_NFS
 
 #
+# LIBCFS_NR_UNSTABLE_NFS_DEPRECATED
+#
+# SLES15 still defines NR_UNSTABLE_NFS, but DEPRECATED it
+#
+AC_DEFUN([LIBCFS_NR_UNSTABLE_NFS_DEPRECATED], [
+	AC_MSG_CHECKING([if NR_UNSTABLE_NFS is defined but DEPRECATED])
+	AS_IF([grep -q -E "NFS unstable pages - DEPRECATED DO NOT USE" "$LINUX/include/linux/mmzone.h" 2>/dev/null], [
+		AC_DEFINE([HAVE_NR_UNSTABLE_NFS_DEPRECATED], 1,
+			  [NR_UNSTABLE_NFS is defined but deprecated])
+		AC_MSG_RESULT(yes)
+	],[
+		AC_MSG_RESULT(no)
+	])
+]) # LIBCFS_NR_UNSTABLE_NFS_DEPRECATED
+
+#
 # LIBCFS_HAVE_MMAP_LOCK
 #
 # kernel v5.8-rc1~83^2~24
@@ -2331,6 +2393,8 @@ AC_DEFUN([LIBCFS_PROG_LINUX_SRC], [
 	LIBCFS_SRC_RHASHTABLE_WALK_ENTER
 	# 4.10
 	LIBCFS_SRC_HOTPLUG_STATE_MACHINE
+	LIBCFS_SRC_NLA_PUT_U64_64BIT
+	LIBCFS_SRC_HAVE_NODE_NR_WRITEBACK
 	# 4.11
 	LIBCFS_SRC_NL_EXT_ACK
 	LIBCFS_SRC_RHASHTABLE_LOOKUP_GET_INSERT_FAST
@@ -2473,6 +2537,8 @@ AC_DEFUN([LIBCFS_PROG_LINUX_RESULTS], [
 	LIBCFS_RHASHTABLE_WALK_ENTER
 	# 4.10
 	LIBCFS_HOTPLUG_STATE_MACHINE
+	LIBCFS_NLA_PUT_U64_64BIT
+	LIBCFS_HAVE_NODE_NR_WRITEBACK
 	# 4.11
 	LIBCFS_NL_EXT_ACK
 	LIBCFS_RHASHTABLE_LOOKUP_GET_INSERT_FAST
@@ -2527,7 +2593,7 @@ AC_DEFUN([LIBCFS_PROG_LINUX_RESULTS], [
 	LIBCFS_TCP_SOCK_SET_KEEPCNT
 	# 5.8
 	LIBCFS_HAVE_NR_UNSTABLE_NFS
-	LIBCFS_HAVE_MMAP_LOCK
+	LIBCFS_NR_UNSTABLE_NFS_DEPRECATED
 	LIBCFS_KERNEL_SETSOCKOPT
 	LIBCFS_VMALLOC_2ARGS
 	# 5.10

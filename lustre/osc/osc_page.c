@@ -877,22 +877,18 @@ void osc_lru_unreserve(struct client_obd *cli, unsigned long npages)
 	wake_up(&osc_lru_waitq);
 }
 
+#if defined(HAVE_NR_UNSTABLE_NFS) && !defined(HAVE_NODE_NR_WRITEBACK)
+
+/* NR_UNSTABLE_NFS is still in enum zone_stat_item  */
 /**
  * Atomic operations are expensive. We accumulate the accounting for the
  * same page zone to get better performance.
  * In practice this can work pretty good because the pages in the same RPC
  * are likely from the same page zone.
  */
-#ifdef HAVE_NR_UNSTABLE_NFS
-/* Old kernels use a separate counter for unstable pages,
- * newer kernels treat them like any other writeback.
- * (see Linux commit: v5.7-467-g8d92890bd6b8)
- */
-#define NR_WRITEBACK NR_UNSTABLE_NFS
-#endif
 
 static inline void unstable_page_accounting(struct ptlrpc_bulk_desc *desc,
-					    int factor)
+											int factor)
 {
 	int page_count;
 	void *zone = NULL;
@@ -915,17 +911,65 @@ static inline void unstable_page_accounting(struct ptlrpc_bulk_desc *desc,
 		}
 
 		if (count > 0) {
-			mod_zone_page_state(zone,
-					    (enum zone_stat_item)NR_WRITEBACK,
-					    factor * count);
+			mod_zone_page_state(zone, NR_UNSTABLE_NFS,
+								factor * count);
 			count = 0;
 		}
 		zone = pz;
 		++count;
 	}
 	if (count > 0)
-		mod_zone_page_state(zone, (enum zone_stat_item)NR_WRITEBACK,
-				    factor * count);
+		mod_zone_page_state(zone, NR_UNSTABLE_NFS,
+				    		factor * count);
+	EXIT;
+}
+
+#else
+
+#if defined(HAVE_NR_UNSTABLE_NFS) && !defined(HAVE_NR_UNSTABLE_NFS_DEPRECATED)
+/* NR_UNSTABLE_NFS is moved into enum node_stat_item and not deprecated. */
+#define __NR_WRITEBACK	NR_UNSTABLE_NFS
+#else
+/*
+ * NR_UNSTABLE_NFS was removed or defined but deprecated (i.e. SLES15), use
+ * NR_WRITEBACK instead.
+ */
+#define __NR_WRITEBACK	NR_WRITEBACK
+#endif
+
+/* TODO: add WB_WRITEBACK accounting. */
+static inline void unstable_page_accounting(struct ptlrpc_bulk_desc *desc,
+					    					int factor)
+{
+	void *node = NULL;
+	int count = 0;
+	int i;
+
+	ENTRY;
+
+	CDEBUG(D_PAGE, "%s %d unstable pages\n",
+	       factor == 1 ? "adding" : "removing", desc->bd_iov_count);
+
+	for (i = 0; i < desc->bd_iov_count; i++) {
+		void *pn = page_pgdat(desc->bd_vec[i].bv_page);
+
+		if (likely(pn == node)) {
+			++count;
+			continue;
+		}
+
+		if (count > 0) {
+			mod_node_page_state(node, __NR_WRITEBACK,
+					    		factor * count);
+			count = 0;
+		}
+
+		node = pn;
+		++count;
+	}
+
+	if (count > 0)
+		mod_node_page_state(node, __NR_WRITEBACK, factor * count);
 
 	EXIT;
 }
