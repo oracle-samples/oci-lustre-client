@@ -597,18 +597,18 @@ static inline struct pcc_inode *ll_i2pcci(struct inode *inode)
 #define RA_MIN_MMAP_RANGE_PAGES			16UL
 
 enum ra_stat {
-        RA_STAT_HIT = 0,
-        RA_STAT_MISS,
-        RA_STAT_DISTANT_READPAGE,
-        RA_STAT_MISS_IN_WINDOW,
-        RA_STAT_FAILED_GRAB_PAGE,
-        RA_STAT_FAILED_MATCH,
-        RA_STAT_DISCARDED,
-        RA_STAT_ZERO_LEN,
-        RA_STAT_ZERO_WINDOW,
-        RA_STAT_EOF,
-        RA_STAT_MAX_IN_FLIGHT,
-        RA_STAT_WRONG_GRAB_PAGE,
+	RA_STAT_HIT = 0,
+	RA_STAT_MISS,
+	RA_STAT_DISTANT_READPAGE,
+	RA_STAT_MISS_IN_WINDOW,
+	RA_STAT_FAILED_GRAB_PAGE,
+	RA_STAT_FAILED_MATCH,
+	RA_STAT_DISCARDED,
+	RA_STAT_ZERO_LEN,
+	RA_STAT_ZERO_WINDOW,
+	RA_STAT_EOF,
+	RA_STAT_MAX_IN_FLIGHT,
+	RA_STAT_WRONG_GRAB_PAGE,
 	RA_STAT_FAILED_REACH_END,
 	RA_STAT_ASYNC,
 	RA_STAT_FAILED_FAST_READ,
@@ -655,6 +655,11 @@ struct ra_io_arg {
 	 * it is stride I/O read-ahead in the read-ahead pages*/
 	loff_t		ria_length;
 	loff_t		ria_bytes;
+	/*
+	 * list of cl_read_aheads used during read-ahead, used to release DLM
+	 * locks acquired during read-ahead.
+	 */
+	struct list_head	ria_cl_ra_list;
 };
 
 /* LL_HIST_MAX=32 causes an overflow */
