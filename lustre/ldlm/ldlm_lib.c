@@ -437,6 +437,7 @@ int client_obd_setup(struct obd_device *obd, struct lustre_cfg *lcfg)
 	atomic_set(&cli->cl_pending_r_pages, 0);
 	cli->cl_r_in_flight = 0;
 	cli->cl_w_in_flight = 0;
+	cli->cl_d_in_flight = 0;
 
 	spin_lock_init(&cli->cl_read_rpc_hist.oh_lock);
 	spin_lock_init(&cli->cl_write_rpc_hist.oh_lock);
