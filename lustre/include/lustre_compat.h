@@ -806,6 +806,8 @@ static inline void folio_batch_reinit(struct folio_batch *fbatch)
 }
 # endif /* HAVE_FOLIO_BATCH_REINIT */
 
+# define folio_index_page(pg)		folio_index(page_folio((pg)))
+
 #else /* !HAVE_FOLIO_BATCH */
 
 # ifdef HAVE_PAGEVEC
@@ -827,6 +829,8 @@ static inline void folio_batch_reinit(struct folio_batch *fbatch)
 # define fbatch_at(pvec, n)		((pvec)->pages[(n)])
 # define fbatch_at_npgs(pvec, n)	1
 # define fbatch_at_pg(pvec, n, pg)	((pvec)->pages[(n)])
+# define folio_index_page(pg)		page_index((pg))
+
 #endif /* HAVE_FOLIO_BATCH */
 
 #ifndef HAVE_FLUSH___WORKQUEUE
@@ -883,5 +887,22 @@ static inline struct timespec64 inode_set_mtime(struct inode *inode,
 	return inode_set_mtime_to_ts(inode, ts);
 }
 #endif  /* !HAVE_INODE_GET_MTIME_SEC */
+
+#ifdef HAVE_FOLIO_MAPCOUNT
+static inline int folio_mapcount_page(struct page *page)
+{
+	struct folio *folio = page_folio(page);
+	int mapcount = atomic_read(&page->_mapcount) + 1;
+
+	if (mapcount < PAGE_MAPCOUNT_RESERVE + 1)
+		mapcount = 0;
+	if (folio_test_large(folio))
+		mapcount += folio_entire_mapcount(folio);
+
+	return mapcount;
+}
+#else
+#define folio_mapcount_page(pg)			page_mapcount((pg))
+#endif
 
 #endif /* _LUSTRE_COMPAT_H */

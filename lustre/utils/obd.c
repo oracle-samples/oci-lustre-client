@@ -5104,8 +5104,7 @@ static int extract_fsname_poolname(char **argv, char *fsname,
 		goto err;
 	}
 
-	strncpy(poolname, ptr, LOV_MAXPOOLNAME);
-	poolname[LOV_MAXPOOLNAME] = '\0';
+	snprintf(poolname, LOV_MAXPOOLNAME + 1, "%s", ptr);
 
 	if (lov_pool_is_reserved(poolname)) {
 		fprintf(stderr, "poolname cannot be '%s'\n", poolname);

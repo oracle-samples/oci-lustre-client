@@ -1712,6 +1712,11 @@ static inline const char *blk_integrity_name(struct blk_integrity *bi)
 #define INTEGRITY_FLAG_WRITE BLK_INTEGRITY_GENERATE
 #endif
 
+#ifdef HAVE_BLK_INTEGRITY_NOVERIFY
+#define INTEGRITY_READ(flag)	(INTEGRITY_FLAG_READ & (flag))
+#define INTEGRITY_WRITE(flag)	(INTEGRITY_FLAG_WRITE & (flag))
+#endif /* HAVE_BLK_INTEGRITY_NOVERIFY */
+
 #ifdef HAVE_FILLDIR_USE_CTX_RETURN_BOOL
 #define WRAP_FILLDIR_FN(prefix, fill_fn) \
 static bool fill_fn(struct dir_context *buf, const char *name, int namelen, \

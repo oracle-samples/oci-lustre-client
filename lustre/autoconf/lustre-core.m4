@@ -4169,6 +4169,27 @@ AC_DEFUN([LC_HAVE_ACL_WITH_DENTRY], [
 ]) # LC_HAVE_ACL_WITH_DENTRY
 
 #
+# LC_HAVE_FOLIO_MAPCOUNT
+#
+# linux kernel v6.1-rc4-186-gcb67f4282bf9
+#   mm,thp,rmap: simplify compound page mapcount handling
+#
+AC_DEFUN([LC_SRC_HAVE_FOLIO_MAPCOUNT], [
+	LB2_LINUX_TEST_SRC([folio_mapcount], [
+		#include <linux/mm.h>
+	],[
+		(void)folio_mapcount((const struct folio *)NULL);
+	],[-Werror])
+])
+AC_DEFUN([LC_HAVE_FOLIO_MAPCOUNT], [
+	LB2_MSG_LINUX_TEST_RESULT([if 'folio_mapcount()' is available],
+	[folio_mapcount], [
+		AC_DEFINE(HAVE_FOLIO_MAPCOUNT, 1,
+			['folio_mapcount()' is available])
+	])
+]) # LC_HAVE_FOLIO_MAPCOUNT
+
+#
 # LC_HAVE_LOCKS_LOCK_FILE_WAIT_IN_FILELOCK
 #
 # Linux commit v6.2-rc3-9-g5970e15dbcfe
@@ -4913,6 +4934,7 @@ AC_DEFUN([LC_PROG_LINUX_SRC], [
 	LC_SRC_NFS_FILLDIR_USE_CTX_RETURN_BOOL
 	LC_SRC_HAVE_FILEMAP_GET_FOLIOS_CONTIG
 	LC_SRC_IOP_GET_INODE_ACL
+	LC_SRC_HAVE_FOLIO_MAPCOUNT
 
 	# 6.2
 	LC_SRC_HAVE_GET_RANDOM_U32_BELOW
@@ -5211,6 +5233,7 @@ AC_DEFUN([LC_PROG_LINUX_RESULTS], [
 	LC_NFS_FILLDIR_USE_CTX_RETURN_BOOL
 	LC_HAVE_FILEMAP_GET_FOLIOS_CONTIG
 	LC_IOP_GET_INODE_ACL
+	LC_HAVE_FOLIO_MAPCOUNT
 
 	# 6.2
 	LC_HAVE_GET_RANDOM_U32_BELOW
