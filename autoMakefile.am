@@ -78,7 +78,7 @@ all-am: modules
 modules: undef.h ldiskfs-sources
 	$(MAKE) DEQUOTE_CC_VERSION_TEXT=$(DEQUOTE) \
 	LDFLAGS= CC="$(CC)" -C $(LINUX_OBJ) \
-	-f $(PWD)/build/Makefile LUSTRE_LINUX_CONFIG=$(LINUX_CONFIG) \
+	-f $(PWD)/config/Kbuild LUSTRE_LINUX_CONFIG=$(LINUX_CONFIG) \
 	LINUXINCLUDE='-I$$(srctree)/arch/$$(SRCARCH)/include -Iarch/$$(SRCARCH)/include/generated -Iinclude $$(if $$(KBUILD_SRC)$$(building_out_of_srctree),-Iinclude2 -I$$(srctree)/include) -I$$(srctree)/arch/$$(SRCARCH)/include/uapi -Iarch/$$(SRCARCH)/include/generated/uapi -I$$(srctree)/include/uapi -Iinclude/generated/uapi -include $(CONFIG_INCLUDE)' \
 	$(MODULE_TARGET)=$(PWD) -o tmp_include_depends -o scripts -o \
 	include/config/MARKER $@
@@ -99,8 +99,8 @@ dist-hook: undef.h
 			-name .#* -exec rm -rf {} \;
 
 EXTRA_DIST = @PACKAGE_TARNAME@.spec	\
-	build/Makefile 			\
-	build/Rules.in			\
+	config/Kbuild 			\
+	config/Rules.in			\
 	config.h.in			\
 	lustre-dkms_pre-build.sh	\
 	lustre-dkms_post-build.sh	\

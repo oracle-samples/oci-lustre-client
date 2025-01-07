@@ -96,6 +96,7 @@ TAGS
 /series
 /stamp-h1
 /LUSTRE-VERSION-FILE
+/kconftest.*
 
 #
 # Top level generic files
