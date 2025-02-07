@@ -14399,27 +14399,20 @@ unaligned_dio() {
 }
 
 # With unaligned_dio enabled there are no restrictions on dio.
-unaligned_dio_or_ldiskfs_with_same_page_size()
+unaligned_dio_or_skip()
 {
-	if [[ "${ost1_FSTYPE}" == "zfs" ]]; then
-		$LCTL get_param osc.*.import | grep connect_flags: |
-			grep -q "unaligned_dio" ||
-		skip "Need ldiskfs server or 'unaligned_dio' support"
-	fi
-	if [[ $(get_page_size ost1) != $PAGE_SIZE ]]; then
-		$LCTL get_param osc.*.import | grep connect_flags: |
-			grep -q "unaligned_dio" ||
-		skip "Need page interop support"
+	if ! unaligned_dio; then
+		skip "Need 'unaligned_dio' support"
 	fi
 }
 
 dio_readv_writev_support()
 {
 	# Kernels after 3.16 work:
-	(( $(version_code $(uname -r)) >= $(version_code 3.16) ))
+	(( $(version_code $(uname -r)) >= $(version_code 3.16) )) &&
 		return 0
 	# Lustre with LU-17524 works:
-	(( $OST1_VERSION > $(version_code 2.15.61.196) ))
+	(( $OST1_VERSION > $(version_code 2.15.61.196) )) &&
 		return 0
 
 	skip "need readv/writev with O_DIRECT support"
@@ -14468,7 +14461,7 @@ run_test 119c "Testing for direct read hitting hole"
 
 test_119e()
 {
-	unaligned_dio_or_ldiskfs_with_same_page_size
+	unaligned_dio_or_skip
 	(( $OSTCOUNT >= 2 )) || skip "needs >= 2 OSTs"
 
 	local stripe_size=$((1024 * 1024)) #1 MiB
@@ -14544,7 +14537,7 @@ run_test 119e "Basic tests of dio read and write at various sizes"
 
 test_119f()
 {
-	unaligned_dio_or_ldiskfs_with_same_page_size
+	unaligned_dio_or_skip
 	(( $OSTCOUNT >= 2 )) || skip "needs >= 2 OSTs"
 
 	local stripe_size=$((1024 * 1024)) #1 MiB
@@ -14619,7 +14612,7 @@ run_test 119f "dio vs dio race"
 
 test_119g()
 {
-	unaligned_dio_or_ldiskfs_with_same_page_size
+	unaligned_dio_or_skip
 	(( $OSTCOUNT >= 2 )) || skip "needs >= 2 OSTs"
 
 	local stripe_size=$((1024 * 1024)) #1 MiB
@@ -14689,7 +14682,7 @@ run_test 119g "dio vs buffered I/O race"
 
 test_119h()
 {
-	unaligned_dio_or_ldiskfs_with_same_page_size
+	unaligned_dio_or_skip
 	(( $OSTCOUNT >= 2 )) || skip "needs >= 2 OSTs"
 
 	local stripe_size=$((1024 * 1024)) #1 MiB
@@ -14765,7 +14758,7 @@ run_test 119h "basic tests of memory unaligned dio"
 # aiocp with the '-a' option makes testing memory unaligned aio trivial
 test_119i()
 {
-	unaligned_dio_or_ldiskfs_with_same_page_size
+	unaligned_dio_or_skip
 	(( $OSTCOUNT >= 2 )) || skip "needs >= 2 OSTs"
 	which aiocp || skip_env "no aiocp installed"
 
@@ -14828,6 +14821,7 @@ run_test 119i "test unaligned aio at varying sizes"
 
 test_119j()
 {
+	unaligned_dio_or_skip
 	(( $LINUX_VERSION_CODE > $(version_code 4.5.0) )) ||
 		skip "needs kernel > 4.5.0 for ki_flags support"
 
