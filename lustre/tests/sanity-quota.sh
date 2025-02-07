@@ -5642,6 +5642,614 @@ test_82()
 }
 run_test 82 "verify more than 8 qids for single operation"
 
+test_grace_with_default_quota()
+{
+	local qtype=$1
+	local qdtype=$2
+	local bgrace
+	local igrace
+	local bgrace2
+	local igrace2
+	echo "ttt1"
+	$LFS setquota $qdtype -b 0 -B 0 -i 0 -I 0 $DIR ||
+		error "clear default quota [$qdtype] failed"
+	echo "ttt2"
+	$LFS setquota -t $qtype --block-grace 1w --inode-grace 1w $DIR ||
+		error "reset quota [$qdtype] grace failed"
+	echo "ttt3"
+
+	eval $($LFS quota -t $qtype $DIR | awk -F "[; ]" \
+			'{printf("bgrace=%s;igrace=%s;", $4, $9)}')
+	echo "ttt4"
+
+	$LFS setquota $qdtype -B 10G -i 10k $DIR
+	echo "ttt5"
+
+	eval $($LFS quota -t $qtype $DIR | awk -F "[; ]" \
+			'{printf("bgrace2=%s;igrace2=%s;", $4, $9)}')
+
+	[ "$bgrace" == "$bgrace2" ] ||
+			error "set default quota shouldn't affect block grace"
+	[ "$igrace" == "$igrace2" ] ||
+			error "set default quota shouldn't affect inode grace"
+
+}
+
+test_83()
+{
+	(( $MDS1_VERSION >= $(version_code 2.15.51.29) )) ||
+		skip "need MDS >= v2_15_51-29-gd4978678b4 for grace time fix"
+
+	setup_quota_test || error "setup quota failed with $?"
+	test_grace_with_default_quota "-u" "-U"
+	test_grace_with_default_quota "-g" "-G"
+
+	is_project_quota_supported || return 0
+	test_grace_with_default_quota "-p" "-P"
+}
+run_test 83 "Setting default quota shouldn't affect grace time"
+
+test_84()
+{
+	(( $MDS1_VERSION >= $(version_code 2.15.53.115) )) ||
+		skip "need MDS >= v2_15_53-115-ga2fd4d3aee for insane quota fix"
+	(( $OST1_VERSION >= $(version_code 2.15.53.115) )) ||
+		skip "need OSS >= v2_15_53-115-ga2fd4d3aee for insane quota fix"
+
+	local dir1="$DIR/$tdir/dir1"
+	local TESTFILE1="$dir1/$tfile-1"
+	local waited=0
+	local grant=0
+	local grant2=0
+	local qp="qpool1"
+
+	mds_supports_qp
+
+	setup_quota_test || error "setup quota failed with $?"
+	quota_init
+	set_ost_qtype $QTYPE || error "enable ost quota failed"
+
+	pool_add $qp || error "pool_add failed"
+	pool_add_targets $qp 0 $(($OSTCOUNT - 1)) ||
+		error "pool_add_targets failed"
+
+	$LFS setquota -g $TSTUSR -B 10G $DIR ||
+		error "failed to set group quota for $TSTUSR"
+	$LFS setquota -g $TSTUSR -B 5G --pool $qp $DIR ||
+                error "set user quota failed"
+	$LFS quota -gv $TSTUSR $DIR
+
+	wait_quota_synced "ost1" "OST0000" "grp" $TSTID "hardlimit" "10485760"
+
+	mkdir -p $dir1 || error "failed to mkdir"
+	chown $TSTUSR.$TSTUSR $dir1 || error "chown $dir1 failed"
+
+	$LFS setstripe -c 1 -i 0 $TESTFILE1
+	$LFS getstripe $TESTFILE1
+	chown $TSTUSR.$TSTUSR $TESTFILE1
+
+	$RUNAS $DD of=$TESTFILE1 count=60 conv=nocreat oflag=direct ||
+		quota_error g $TSTUSR "write failed"
+
+	sync_all_data || true
+	sleep 3
+	$LFS quota -gv $TSTUSR $DIR
+	$LFS quota -gv --pool $qp $TSTUSR $DIR
+
+	# the grant quota should be larger than 0
+	waited=0
+	while (( $waited < 60 )); do
+		grant=$(getquota -g $TSTUSR lustre-OST0000 bhardlimit $qp)
+		grant2=$(getquota -g $TSTUSR lustre-OST0000 bhardlimit)
+		(( ${grant} > 0 && ${grant2} > 0 )) && break
+
+		do_facet ost1 $LCTL set_param \
+				osd-*.*-OST0000.quota_slave.force_reint=1
+		sleep 1
+		waited=$((waited + 1))
+	done
+
+	(( $waited >= 60)) && {
+		$LFS quota -gv $TSTUSR $DIR
+		$LFS quota -gv --pool $qp $TSTUSR $DIR
+	}
+
+	(( ${grant} > 0 )) || error "pool grant is not increased after dd"
+	(( ${grant2} > 0 )) || error "grant is not increased after dd"
+
+#define OBD_FAIL_QUOTA_GRANT 0xA08
+	lustre_fail mds 0xa08
+	lustre_fail ost 0xa08
+	sleep 1
+
+	# clear quota limits to trigger updating grant quota
+	$LFS setquota -g $TSTUSR -b 0 -B 0 $DIR ||
+		error "failed to clear the group quota for $TSTUSR"
+	$LFS quota -gv $TSTUSR $DIR
+	$LFS quota -gv --pool $qp $TSTUSR $DIR
+
+	# the grant quota should be set as insane value
+	waited=0
+	while (( $waited < 60 )); do
+		grant=$(getquota -g $TSTUSR lustre-OST0000 bhardlimit $qp)
+		grant2=$(getquota -g $TSTUSR lustre-OST0000 bhardlimit)
+		(( ${#grant} == 20 && ${#grant2} == 20 )) && break
+
+		sleep 1
+		waited=$((waited + 1))
+	done
+
+	(( $waited >= 60)) && {
+		$LFS quota -gv $TSTUSR $DIR
+		$LFS quota -gv --pool $qp $TSTUSR $DIR
+	}
+
+	(( ${#grant} == 20 )) || error "pool grant is not set as insane value"
+	(( ${#grant2} == 20 )) || error "grant is not set as insane value"
+
+	lustre_fail mds_ost 0
+	sleep 1
+
+	# reset the quota
+	$LFS setquota -g $TSTUSR -r $DIR ||
+		error "failed to reset group quota for $TSTUSR"
+
+	sleep 3
+	$LFS quota -gv $TSTUSR $DIR
+	$LFS quota -gv --pool $qp $TSTUSR $DIR
+
+	# the grant quota should be reset
+	grant=$(getquota -g $TSTUSR lustre-OST0000 bhardlimit)
+	(( ${#grant} == 20 )) && error "grant is not cleared"
+	grant=$(getquota -g $TSTUSR lustre-OST0000 bhardlimit $qp)
+	(( ${#grant} == 20 )) && error "pool grant is not cleared"
+
+	$LFS quota -gv $TSTUSR --pool $qp $DIR
+	$LFS quota -gv --pool $qp $TSTUSR $DIR
+	local hlimit=$(getquota -g $TSTUSR global bhardlimit $qp)
+	 [ $hlimit -eq 5242880 ] || error "pool limit is changed"
+
+	# test whether the quota still works
+	$LFS setquota -g $TSTUSR -B 100M $DIR ||
+		error "failed to set group quota for $TSTUSR"
+	$LFS quota -gv $TSTUSR $DIR
+
+	$RUNAS $DD of=$TESTFILE1 count=200 conv=nocreat oflag=direct &&
+		quota_error g $TSTUSR "dd succeed, expect EDQUOT"
+
+	$LFS setquota -g $TSTUSR -B 300M $DIR ||
+		error "failed to set group quota for $TSTUSR"
+	$LFS quota -gv $TSTUSR $DIR
+
+	$RUNAS $DD of=$TESTFILE1 count=200 conv=nocreat oflag=direct ||
+		quota_error g $TSTUSR "dd failed, expect succeed"
+}
+run_test 84 "Reset quota should fix the insane granted quota"
+
+test_85()
+{
+	(( $MDS1_VERSION >= $(version_code 2.15.55.5) )) ||
+		skip "need MDS >= v2_15_55-5-g6c0b4329d0 for least_qunit fix"
+	(( $OST1_VERSION >= $(version_code 2.15.55.5) )) ||
+		skip "need OSS >= v2_15_55-5-g6c0b4329d0 for least_qunit fix"
+
+	local limit=3 # 3M
+	local qpool="qpool1"
+	local qpool2="qpool2"
+	local tfile1="$DIR/$tdir/$tfile-0"
+
+	(( OSTCOUNT >= 2 )) || skip "needs >= 2 OSTs"
+	mds_supports_qp
+	setup_quota_test || error "setup quota failed with $?"
+
+	# enable ost quota
+	set_ost_qtype $QTYPE || error "enable ost quota failed"
+
+	$LFS setquota -u $TSTUSR -b 0 -B 50T -i 0 -I 0 $DIR ||
+		error "set user quota failed"
+
+	pool_add $qpool || error "pool_add failed"
+	pool_add_targets $qpool 0 1 ||
+		error "pool_add_targets failed"
+
+	pool_add $qpool2 || error "pool_add failed"
+	pool_add_targets $qpool2 0 1 ||
+		error "pool_add_targets failed"
+
+	$LFS setstripe -p $qpool $DIR/$tdir || error "cannot set stripe"
+	$LFS setquota -u $TSTUSR -B 30M --pool $qpool $DIR ||
+		error "set user quota failed"
+	$LFS setquota -u $TSTUSR -B ${limit}M --pool $qpool $DIR ||
+		error "set user quota failed"
+
+	# don't care about returned value. Just check we don't hung on write.
+	$RUNAS $DD of=$tfile1 count=10
+	return 0
+}
+run_test 85 "do not hung at write with the least_qunit"
+
+test_preacquired_quota()
+{
+	local test_dir=$1
+	local qtype=$2
+	local qtype_name=$3
+	local qid=$4
+
+	[[ "$qtype" == "-p" ]] && change_project -sp $qid $DIR/$tdir
+
+	$LFS setquota $qtype $qid -i 100K -I 100K $DIR ||
+		error "failed to set file [$qtype] quota"
+
+	$RUNAS createmany -m $test_dir/tfile- 5000 ||
+		error "failed to create files, expect succeed"
+
+	wait_zfs_commit $SINGLEMDS
+	$LFS setquota $qtype $qid -i 2K -I 2K $DIR ||
+		error "failed to decrease file [$qtype] quota"
+
+	wait_quota_synced "mds1" "MDT0000" $qtype_name $qid "hardlimit" "2048"
+
+	# make sure the lqe->lqe_edquot is set
+	$RUNAS createmany -m $test_dir/tfile2- 10
+	sleep 5
+
+	$RUNAS createmany -m $test_dir/tfile3- 30 &&
+		error "succeed to create files, expect failed"
+
+	rm -f $test_dir/tfile*
+	$LFS setquota $qtype $qid -i 0 -I 0 $DIR ||
+		error "failed to reset file user quota"
+}
+
+test_86()
+{
+	(( $MDS1_VERSION >= $(version_code 2.15.57.41) )) ||
+		skip "need MDS >= 2.15.57.41 for quota over limit release fix"
+
+	local test_dir="$DIR/$tdir/test_dir"
+
+	setup_quota_test || error "setup quota failed with $?"
+	set_mdt_qtype $QTYPE || error "enable mdt quota failed"
+
+	$LFS setdirstripe -c 1 -i 0 $test_dir || error "setdirstripe failed"
+	chmod 777 $test_dir
+
+	test_preacquired_quota "$test_dir" "-u" "usr" "$TSTID"
+	test_preacquired_quota "$test_dir" "-g" "grp" "$TSTID"
+
+	is_project_quota_supported || return 0
+	test_preacquired_quota "$test_dir" "-p" "prj" "1000"
+}
+run_test 86 "Pre-acquired quota should be released if quota is over limit"
+
+test_87()
+{
+	(( $MDS1_VERSION >= $(version_code 2.16.50) )) ||
+		skip "need MDS >= 2.16.50 to add default value in lfs quota -a"
+
+	local blimit=102400
+	local ilimit=10240
+	local d_blimit=409600
+	local d_ilimit=40960
+	local u_blimits
+	local u_ilimits
+	local g_blimits
+	local g_ilimits
+	local p_blimits
+	local p_ilimits
+
+	setup_quota_test || error "setup quota failed with $?"
+
+	echo "test user quota for 'lfs quota -a' to print default quota"
+	$LFS setquota -U -b $d_blimit -B $d_blimit $MOUNT ||
+		error "failed to set USR default block quota setting"
+	$LFS setquota -U -i $d_ilimit -I $d_ilimit $MOUNT ||
+		error "failed to set USR default file quota setting"
+	$LFS setquota -G -b $d_blimit -B $d_blimit $MOUNT ||
+		error "failed to set GRP default block quota setting"
+	$LFS setquota -G -i $d_ilimit -I $d_ilimit $MOUNT ||
+		error "failed to set GRP default file quota setting"
+
+	is_project_quota_supported && {
+		$LFS setquota -P -b $d_blimit -B $d_blimit $MOUNT ||
+			error "failed to set PRJ default block quota setting"
+		$LFS setquota -P -i $d_ilimit -I $d_ilimit $MOUNT ||
+			error "failed to set PRJ default file quota setting"
+	}
+
+	#define OBD_FAIL_QUOTA_NOSYNC		0xA09
+	do_facet mds1 $LCTL set_param fail_loc=0xa09
+
+	for ((i = 100; i < 150; i++)); do
+		$LFS setquota -u $i -b $blimit -B $blimit $MOUNT ||
+			error "failed to set USR $i block quota setting"
+		$LFS setquota -u $i -i $ilimit -I $ilimit $MOUNT ||
+			error "failed to set USR $i file quota setting"
+
+		$LFS setquota -g $i -b $blimit -B $blimit $MOUNT ||
+			error "failed to set GRP $i block quota setting"
+		$LFS setquota -g $i -i $ilimit -I $ilimit $MOUNT ||
+			error "failed to set GRP $i file quota setting"
+
+		is_project_quota_supported && {
+			$LFS setquota -p $i -b $blimit -B $blimit $MOUNT ||
+				error "failed to set PRJ $i block quota setting"
+			$LFS setquota -p $i -i $ilimit -I $ilimit $MOUNT ||
+				error "failed to set PRJ $i file quota setting"
+		}
+	done
+
+	for ((i = 150; i < 200; i++)); do
+		$LFS setquota -u $i -D $MOUNT ||
+			error "failed to set USR $i to use default quota"
+		$LFS setquota -g $i -D $MOUNT ||
+			error "failed to set GRP $i to use default quota"
+		is_project_quota_supported && {
+			$LFS setquota -p $i -D $MOUNT ||
+			error "failed to set PRJ $i to use default quota"
+		}
+	done
+
+	do_facet mds1 $LCTL set_param fail_loc=0
+	sync; sync_all_data || true
+	sleep 5
+
+	eval $($LFS quota -q -a -s 100 -e 199 -u $MOUNT |
+	    awk '{printf("u_blimits[%d]=%d;u_ilimits[%d]=%d;", \
+		NR, $5, NR, $9)}')
+	eval $($LFS quota -q -a -s 100 -e 199 -g $MOUNT |
+	    awk '{printf("g_blimits[%d]=%d;g_ilimits[%d]=%d;", \
+		 NR, $5, NR, $9)}')
+	is_project_quota_supported &&
+		eval $($LFS quota -q -a -s 100 -e 199 -p $MOUNT |
+		    awk '{printf("p_blimits[%d]=%d;p_ilimits[%d]=%d;", \
+		 		NR, $5, NR, $9)}')
+
+	for i in $(seq 50); do
+		[ ${u_ilimits[$i]} -eq $ilimit ] ||
+		error "file limit for USR ID $((100 + i - 1)) is wrong"
+		[ ${u_blimits[$i]} -eq $blimit ] ||
+		error "block limit for USR ID $((100 + i - 1)) is wrong"
+
+		[ ${g_ilimits[$i]} -eq $ilimit ] ||
+		error "file limit for GRP ID $((100 + i - 1)) is wrong"
+		[ ${g_blimits[$i]} -eq $blimit ] ||
+		error "block limit for GRP ID $((100 + i - 1)) is wrong"
+
+		is_project_quota_supported && {
+			[ ${p_ilimits[$i]} -eq $ilimit ] ||
+			error "file limit for PRJ ID $((100 + i - 1)) is wrong"
+			[ ${p_blimits[$i]} -eq $blimit ] ||
+			error "block limit for PRJ ID $((100 + i - 1)) is wrong"
+		}
+	done
+
+	for i in $(seq 50); do
+		[ ${u_ilimits[$((i + 50))]} -eq $d_ilimit ] ||
+		error "file limit for USR ID $((150 + i - 1)) is wrong"
+		[ ${u_blimits[$((i + 50))]} -eq $d_blimit ] ||
+		error "block limit for USR ID $((150 + i - 1)) is wrong"
+
+		[ ${g_ilimits[$((i + 50))]} -eq $d_ilimit ] ||
+		error "file limit for GRP ID $((150 + i - 1)) is wrong"
+		[ ${g_blimits[$((i + 50))]} -eq $d_blimit ] ||
+		error "block limit for GRP ID $((150 + i - 1)) is wrong"
+
+		is_project_quota_supported && {
+			[ ${p_ilimits[$((i + 50))]} -eq $d_ilimit ] ||
+			error "file limit for PRJ ID $((150 + i - 1)) is wrong"
+			[ ${p_blimits[$((i + 50))]} -eq $d_blimit ] ||
+			error "block limit for PRJ ID $((150 + i - 1)) is wrong"
+		}
+	done
+}
+run_test 87 "lfs quota -a should print default quota setting"
+
+# interop quota
+test_88()
+{
+	(($PAGE_SIZE > 4096)) || skip "require client with >4k pages"
+	setup_quota_test || error "setup quota failed with $?"
+
+	set_ost_qtype $QTYPE || error "enable ost quota failed"
+
+	$LFS setquota -u $TSTUSR -B 100M -i 0 $MOUNT ||
+		error "enable quota -B 100M failed."
+
+	local tfile
+	local result
+
+	local repeat=$(seq 10)
+	local arr=(1075761 1075770 1075800 1076000 1080000 1093000 2010000 \
+		   2080000 2095000 4096000)
+	[[ "$SLOW" = "no" ]] && repeat=1
+
+	for r in $repeat; do
+		for bs in ${arr[@]}; do
+			tfile=$DIR/$tdir/dd_largefile.${bs}
+			${RUNAS} dd if=/dev/urandom of=${tfile} bs=${bs} \
+				count=100 status=progress
+			rm -f ${tfile}
+		done
+	done
+
+	return 0
+}
+run_test 88 "Writing over quota should not hang"
+
+check_quota_no_mount()
+{
+	local opts="$1"
+	local id="$2"
+
+	echo "cmd: $LFS quota $opts $id"
+	local expected=$($LFS quota $opts $id $MOUNT)
+	local actual=$($LFS quota $opts $id)
+
+	[[ "$actual" == "$expected" ]] ||
+		error "quota info not $expected, found: $actual"
+}
+
+check_quota_two_mounts()
+{
+	local opts="$1"
+	local id="$2"
+
+	local cmd="$LFS quota -q $opts $id $MOUNT $MOUNT2"
+	echo "cmd: $cmd"
+#	remove the header for comparison
+	local actual
+	local full=$($cmd)
+	local head=$($LFS quota -q $opts $id $MOUNT)
+	local tail=$($LFS quota -q $opts $id $MOUNT2)
+
+	actual=$(echo "$full" | head -n$(echo "$head" | wc -l))
+	[[ "$actual" == "$head" ]] ||
+	# re-fetch head if it failed
+	[[ "$actual" == "$($LFS quota -q $opts $id $MOUNT)" ]] ||
+		error "quota info from $MOUNT not '$head', found '$actual'"
+
+	actual=$(echo "$full" | tail -n$(echo "$tail" | wc -l))
+	[[ "$actual" == "$tail" ]] ||
+	# re-fetch tail if it failed
+	[[ "$actual" == "$($LFS quota -q $opts $id $MOUNT2)" ]] ||
+		error "quota info from $MOUNT2 not '$tail', found '$actual'"
+}
+
+test_90a()
+{
+	(( MDS1_VERSION >= $(version_code 2.15.60) )) ||
+		skip "Need MDS version at least 2.15.60"
+
+	setup_quota_test || error "setup quota failed with $?"
+
+	stack_trap cleanup_quota_test
+
+	check_quota_no_mount
+	check_quota_no_mount -u $TSTUSR
+	check_quota_no_mount "-a -u"
+	check_quota_no_mount "-t -u"
+	check_quota_no_mount -U
+	check_quota_no_mount -g $TSTUSR
+	check_quota_no_mount "-a -g"
+	check_quota_no_mount "-t -g"
+	check_quota_no_mount -G
+
+	! is_project_quota_supported &&
+		skip "Project quota is not supported"
+	check_quota_no_mount -p 100
+	check_quota_no_mount "-a -p"
+	check_quota_no_mount "-t -p"
+	check_quota_no_mount -P
+}
+run_test 90a "lfs quota should work without mount point"
+
+test_90b()
+{
+	(( MDS1_VERSION >= $(version_code 2.15.60) )) ||
+		skip "Need MDS version at least 2.15.60"
+
+	setup_quota_test || error "setup quota failed with $?"
+	mount_client $MOUNT2
+
+	stack_trap "umount $MOUNT2"
+	stack_trap cleanup_quota_test
+
+	check_quota_two_mounts -u $TSTUSR
+	check_quota_two_mounts "-a -u"
+	check_quota_two_mounts "-t -u"
+	check_quota_two_mounts -U
+	check_quota_two_mounts -g $TSTUSR
+	check_quota_two_mounts "-a -g"
+	check_quota_two_mounts "-t -g"
+	check_quota_two_mounts -G
+
+	! is_project_quota_supported &&
+		skip "Project quota is not supported"
+	check_quota_two_mounts -p 1000
+	check_quota_two_mounts "-a -p"
+	check_quota_two_mounts "-t -p"
+	check_quota_two_mounts -P
+}
+run_test 90b "lfs quota should work with multiple mount points"
+
+test_91()
+{
+	(( OSTCOUNT >= 2 )) || skip_env "needs >= 2 OSTs"
+	local mds_dev=$(mdsdevname 1)
+	local ost1_dev=$(ostdevname 1)
+	local ost2_dev=$(ostdevname 2)
+	local ost0_idx="quota_master/dt-0x0/0x20000-OST0000_UUID"
+	local ost1_idx="quota_master/dt-0x0/0x20000-OST0001_UUID"
+	local tstid=$(id -u $TSTUSR)
+
+	formatall
+	if ! combined_mgs_mds ; then
+		start_mgs
+	fi
+	start mds1 $mds_dev $MDS_MOUNT_OPTS || error "Cannot start mds1"
+	wait_clients_import_state ${CLIENTS:-$HOSTNAME} mds1 FULL
+
+	echo "start ost1 service on `facet_active_host ost1`"
+	start ost1 $ost1_dev $OST_MOUNT_OPTS || error "Cannot start ost1"
+	wait_clients_import_ready ${CLIENTS:-$HOSTNAME} ost1
+	echo "start ost2 service on `facet_active_host ost2`"
+	start ost2 $ost2_dev $OST_MOUNT_OPTS || error "Cannot start ost2"
+	wait_clients_import_ready ${CLIENTS:-$HOSTNAME} ost2
+	echo "start client"
+	zconf_mount $HOSTNAME $MOUNT || error "mount client failed"
+
+	if [[ $PERM_CMD == *"set_param -P"* ]]; then
+		do_facet mgs $PERM_CMD \
+			set_param -P osd-*.*.quota_slave.enabled=u
+	else
+		do_facet mgs $PERM_CMD $FSNAME.quota.ost=u ||
+			error "set ost quota type failed"
+	fi
+
+	pool_add qpool1 1
+	pool_add_targets qpool1 0 1 1 1
+	$LFS setquota -u $TSTUSR -B50M $DIR || error "can't set quota"
+	wait_quota_synced ost1 OST0000 usr $tstid hardlimit $((50*1024))
+	wait_quota_synced ost2 OST0001 usr $tstid hardlimit $((50*1024))
+	echo "stop mds1"
+	stop mds1 -f || error "Can't stop mds1"
+
+	do_facet mds1 "$DEBUGFS -w -R 'rm $ost0_idx' $mds_dev" ||
+		error "removing $ost0_idx error"
+	do_facet mds1 "$DEBUGFS -w -R 'rm $ost1_idx' $mds_dev" ||
+		error "removing $ost1_idx error"
+	do_facet mds1 "$DEBUGFS -c -R 'ls -l quota_master/dt-0x0/' $mds_dev"
+
+	echo "start mds1"
+	start mds1 $mds_dev $MDS_MOUNT_OPTS || error "Cannot start mds1"
+	wait_clients_import_state ${CLIENTS:-$HOSTNAME} mds1 FULL
+
+	mkdir $DIR/$tdir || error "mkdir failed"
+	chmod 0777 $DIR/$tdir || error "chmod error"
+	$RUNAS $DD of=$DIR/$tdir/f1 bs=1M count=50
+
+	stopall
+	formatall
+	setupall
+}
+run_test 91 "new quota index files in quota_master"
+
+test_92()
+{
+	local qpool="qpool1"
+	pool_add $qpool || error "pool_add failed"
+
+	# with the fix it returns EINVAL instead of ENOENT
+	$LFS setquota -u $TSTUSR -B 100M -I 0 --pool $qpool $MOUNT
+	(( $? == 22 )) || error "inode hard limit should be prohibited with PQ"
+	$LFS setquota -u $TSTUSR -B 100M -i 0 --pool $qpool $MOUNT
+	(( $? == 22 )) || error "inode soft limit should be prohibited with PQ"
+	$LFS setquota -u $TSTUSR -B 100M -I 0 -i 10M --pool $qpool $MOUNT
+	(( $? == 22 )) || error "inode limits should be prohibited with PQ"
+}
+run_test 92 "Cannot set inode limit with Quota Pools"
+
 quota_fini()
 {
 	do_nodes $(comma_list $(nodes_list)) \
