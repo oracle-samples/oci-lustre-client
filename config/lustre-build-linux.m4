@@ -112,6 +112,8 @@ AC_DEFUN([LB_LINUX_RELEASE], [
 	RHEL_KERNEL="no"
 	SUSE_KERNEL="no"
 	UBUNTU_KERNEL="no"
+	DEBIAN_KERNEL="no"
+	OPENEULER_KERNEL="no"
 	# And if any of the above kernels has been detected yet
 	KERNEL_FOUND="no"
 
@@ -147,12 +149,25 @@ AC_DEFUN([LB_LINUX_RELEASE], [
 	AS_IF([test "x$KERNEL_FOUND" = "xno"], [
 		AC_CACHE_CHECK([for Ubuntu kernel signature], lb_cv_ubuntu_kernel_sig, [
 			lb_cv_ubuntu_kernel_sig="no"
-			AS_IF([fgrep -q "CONFIG_VERSION_SIGNATURE \"Ubuntu" $LINUX_OBJ/include/generated/autoconf.h], [
+			AS_IF([fgrep -q "UTS_UBUNTU_RELEASE_ABI" $LINUX_OBJ/include/generated/utsrelease.h], [
 				lb_cv_ubuntu_kernel_sig="yes"
 			])
 		])
 		AS_IF([test "x$lb_cv_ubuntu_kernel_sig" = "xyes"], [
 			UBUNTU_KERNEL="yes"
+			KERNEL_FOUND="yes"
+		])
+	])
+
+	AS_IF([test "x$KERNEL_FOUND" = "xno"], [
+		AC_CACHE_CHECK([for Debian kernel signature], lb_cv_debian_kernel_sig, [
+			lb_cv_debian_kernel_sig="no"
+			AS_IF([grep -q "LINUX_PACKAGE_ID\s*\"\s*Debian" $LINUX_OBJ/include/generated/package.h], [
+				lb_cv_debian_kernel_sig="yes"
+			])
+		])
+		AS_IF([test "x$lb_cv_debian_kernel_sig" = "xyes"], [
+			DEBIAN_KERNEL="yes"
 			KERNEL_FOUND="yes"
 		])
 	])
@@ -168,6 +183,9 @@ AC_DEFUN([LB_LINUX_RELEASE], [
 			AS_IF([fgrep -q '.el8.' $LINUX_OBJ/include/generated/utsrelease.h], [
 				lb_cv_mainline_kernel_sig="yes"
 			])
+			AS_IF([fgrep -q '.el9.' $LINUX_OBJ/include/generated/utsrelease.h], [
+				lb_cv_mainline_kernel_sig="yes"
+			])
 		])
 		AS_IF([test "x$lb_cv_mainline_kernel_sig" = "xyes"], [
 			RHEL_KERNEL="yes"
@@ -175,9 +193,27 @@ AC_DEFUN([LB_LINUX_RELEASE], [
 		])
 	])
 
+	# Check for openEuler
+	AS_IF([test "x$KERNEL_FOUND" = "xno"], [
+		AC_CACHE_CHECK([for openEuler kernel version number], lb_cv_openeuler_kernel_version, [
+			lb_cv_openeuler_kernel_version=""
+			AS_IF([fgrep -q OPENEULER_VERSION $LINUX_OBJ/include/$VERSION_HDIR/version.h], [
+				lb_cv_openeuler_kernel_version=$(awk '/ OPENEULER_MAJOR / { print [$]3 }' \
+					$LINUX_OBJ/include/$VERSION_HDIR/version.h).$(awk \
+					'/ OPENEULER_MINOR / { print [$]3 }' \
+					$LINUX_OBJ/include/$VERSION_HDIR/version.h)
+			])
+		])
+		AS_IF([test -n "$lb_cv_openeuler_kernel_version"], [
+			OPENEULER_KERNEL="yes"
+			KERNEL_FOUND="yes"
+			OPENEULER_VERSION_NO=$lb_cv_openeuler_kernel_version
+		])
+	])
+
 	# If still no kernel was found, a warning is issued
 	AS_IF([test "x$KERNEL_FOUND" = "xno"], [
-		AC_MSG_WARN([Kernel Distro seems to be neither RedHat, SuSE nor Ubuntu])
+		AC_MSG_WARN([Kernel Distro seems to be neither RedHat, SuSE, openEuler, Ubuntu nor Debian])
 	])
 
 	AC_MSG_CHECKING([for Linux kernel module package directory])
@@ -187,9 +223,11 @@ AC_DEFUN([LB_LINUX_RELEASE], [
 		[KMP_MODDIR=$withval
 		 IN_KERNEL=''],[
 		AS_IF([test x$RHEL_KERNEL = xyes], [KMP_MODDIR="extra/kernel"],
+		      [test x$OPENEULER_KERNEL = xyes], [KMP_MODDIR="extra/kernel"],
 		      [test x$SUSE_KERNEL = xyes], [KMP_MODDIR="updates/kernel"],
 		      [test x$UBUNTU_KERNEL = xyes], [KMP_MODDIR="updates/kernel"],
-		      [AC_MSG_WARN([Kernel Distro seems to be neither RedHat, SuSE nor Ubuntu])]
+		      [test x$DEBIAN_KERNEL = xyes], [KMP_MODDIR="updates/kernel"],
+		      [AC_MSG_WARN([Kernel Distro seems to be neither RedHat, SuSE, openEuler, Ubuntu nor Debian])]
 		)
 		IN_KERNEL="${PACKAGE}"])
 	AC_MSG_RESULT($KMP_MODDIR)
@@ -406,7 +444,7 @@ LB_LINUX_VERSION
 
 # --- Parallel config for kernel v5.17+
 AS_IF([test "x$lb_cv_dequote_CC_VERSION_TEXT" = "xyes"], [
-	CC_VERSION_TEXT=$(gcc --version | head -n1 | tr ' ()' '.')
+	CC_VERSION_TEXT=$($CC --version | head -n1 | tr ' ()' '.')
 	MAKE_KMOD_ENV="CONFIG_CC_VERSION_TEXT='$CC_VERSION_TEXT'"])
 
 # --- check that we can build modules at all
@@ -456,6 +494,23 @@ Kernel module loading support is highly recommended.
 	])
 ])
 
+#
+# LC_LBUG_WITH_LOC_IN_OBJTOOL
+#
+# Linux v6.4-rc2-10-g34245659debd
+# objtool: Remove superfluous global_noreturns entries
+#
+AC_DEFUN([LC_LBUG_WITH_LOC_IN_OBJTOOL], [
+	AC_MSG_CHECKING([if lbug_with_loc is in objtool global_noreturns array])
+	AS_IF([grep -q lbug_with_loc $LINUX_OBJ/tools/objtool/objtool],[
+		AC_DEFINE(HAVE_LBUG_WITH_LOC_IN_OBJTOOL, 1,
+			  [lbug_with_loc is in objtool global_noreturns array])
+		AC_MSG_RESULT(yes)
+	],[
+		AC_MSG_RESULT(no)
+	])
+]) # LC_LBUG_WITH_LOC_IN_OBJTOOL
+
 AC_DEFUN([LB_PROG_LINUX_SRC], [
 	LB2_SRC_CHECK_CONFIG([MODULES])
 	LB2_SRC_CHECK_CONFIG([MODVERSIONS])
@@ -478,6 +533,8 @@ LB_LINUX_PATH
 LB_LINUX_SYMVERFILE
 # 2.6.28
 LC_MODULE_LOADING
+# 6.5
+LC_LBUG_WITH_LOC_IN_OBJTOOL
 ])
 
 #
@@ -488,7 +545,8 @@ LC_MODULE_LOADING
 AC_DEFUN([LB_USES_DPKG], [
 AC_CACHE_CHECK([if this distro uses dpkg], lb_cv_uses_dpkg, [
 lb_cv_uses_dpkg="no"
-AS_CASE([$(which dpkg 2>/dev/null)],[*/dpkg], [lb_cv_uses_dpkg="yes"])
+AS_CASE([$(egrep -q 'ubuntu|debian' /etc/os-release && which dpkg 2>/dev/null)],
+        [*/dpkg], [lb_cv_uses_dpkg="yes"])
 ])
 uses_dpkg=$lb_cv_uses_dpkg
 ])
@@ -609,7 +667,7 @@ AC_DEFUN([LB_LINUX_COMPILE_IFELSE],
 mkdir -p kconftest.dir/
 rm -f kconftest.dir/conftest.o kconftest.dir/conftest.mod.c kconftest.dir/conftest.ko
 cp config/Kbuild kconftest.dir/
-AS_IF([AC_TRY_COMMAND(cp conftest.c kconftest.dir && make -d [$2] DEQUOTE_CC_VERSION_TEXT=$lb_cv_dequote_CC_VERSION_TEXT LDFLAGS= ${LD:+LD="$LD"} CC="$CC" -f $PWD/kconftest.dir/Kbuild LUSTRE_LINUX_CONFIG=$LINUX_CONFIG LINUXINCLUDE="$EXTRA_CHECK_INCLUDE -I$LINUX/arch/$SUBARCH/include -Iinclude -Iarch/$SUBARCH/include/generated -I$LINUX/include -Iinclude2 -I$LINUX/include/uapi -Iinclude/generated -I$LINUX/arch/$SUBARCH/include/uapi -Iarch/$SUBARCH/include/generated/uapi -I$LINUX/include/uapi -Iinclude/generated/uapi ${SPL_OBJ:+-include $SPL_OBJ/spl_config.h} ${ZFS_OBJ:+-include $ZFS_OBJ/zfs_config.h} ${SPL:+-I$SPL/include } ${ZFS:+-I$ZFS -I$ZFS/include -I$ZFS/include/os/linux/kernel -I$ZFS/include/os/linux/spl -I$ZFS/include/os/linux/zfs -I${SPL:-$ZFS/include/spl}} -include $CONFIG_INCLUDE" KBUILD_EXTRA_SYMBOLS="${ZFS_OBJ:+$ZFS_OBJ/Module.symvers} $KBUILD_EXTRA_SYMBOLS" -o tmp_include_depends -o scripts -o include/config/MARKER -C $LINUX_OBJ EXTRA_CFLAGS="-Werror-implicit-function-declaration $EXTRA_KCFLAGS" $MODULE_TARGET=$PWD/kconftest.dir) >/dev/null && AC_TRY_COMMAND([$3])],
+AS_IF([AC_TRY_COMMAND(cp conftest.c kconftest.dir && make -d [$2] DEQUOTE_CC_VERSION_TEXT=$lb_cv_dequote_CC_VERSION_TEXT LDFLAGS= ${LD:+LD="$LD"} CC="$CC" -f $PWD/kconftest.dir/Kbuild LUSTRE_LINUX_CONFIG=$LINUX_CONFIG LINUXINCLUDE="$EXTRA_CHECK_INCLUDE -I$LINUX/arch/$SUBARCH/include -Iinclude -Iarch/$SUBARCH/include/generated -I$LINUX/include -Iinclude2 -I$LINUX/include/uapi -Iinclude/generated -I$LINUX/arch/$SUBARCH/include/uapi -Iarch/$SUBARCH/include/generated/uapi -I$LINUX/include/uapi -Iinclude/generated/uapi -I$LINUX/arch/$SUBARCH/include/generated -I$LINUX/arch/$SUBARCH/include/generated/uapi -I$LINUX/include/generated -I$LINUX/include/generated/uapi ${SPL_OBJ:+-include $SPL_OBJ/spl_config.h} ${ZFS_OBJ:+-include $ZFS_OBJ/zfs_config.h} ${SPL:+-I$SPL/include } ${ZFS:+-I$ZFS -I$ZFS/include -I$ZFS/include/os/linux/kernel -I$ZFS/include/os/linux/spl -I$ZFS/include/os/linux/zfs -I${SPL:-$ZFS/include/spl}} -include $CONFIG_INCLUDE" KBUILD_EXTRA_SYMBOLS="${ZFS_OBJ:+$ZFS_OBJ/Module.symvers} $KBUILD_EXTRA_SYMBOLS" -o tmp_include_depends -o scripts -o include/config/MARKER -C $LINUX_OBJ EXTRA_CFLAGS="-Werror-implicit-function-declaration $EXTRA_KCFLAGS" $MODULE_TARGET=$PWD/kconftest.dir) >/dev/null && AC_TRY_COMMAND([$3])],
 	[$4],
 	[_AC_MSG_LOG_CONFTEST
 m4_ifvaln([$5],[$5])dnl])
@@ -725,12 +783,26 @@ AC_DEFUN([LB_CHECK_LINUX_HEADER], [
 # without serious confusion or complication.
 # ------------------------------------------------------------------------------
 
+#
+## LB2_LINUX_CONFTEST_C
+# $1 - *unique* test case name
+# $2 - mlnx: if MLNXPATH should be included and mlnx rewrites
+#      ofed: ofed rewrites are needed
+# $3 - Program source
+#
 AC_DEFUN([LB2_LINUX_CONFTEST_C], [
 TEST_DIR=${TEST_DIR:-${ac_pwd}/_lpb}
-test -d ${TEST_DIR}/$2 || mkdir -p ${TEST_DIR}/$2
-cat confdefs.h - <<_EOF >${TEST_DIR}/$2/$2.c
-$1
+test -d ${TEST_DIR}/$1_pc || mkdir -p ${TEST_DIR}/$1_pc
+cat confdefs.h - <<_EOF >${TEST_DIR}/$1_pc/$1_pc.c
+$3
 _EOF
+# for in-kernel test case #defines:
+if test x$2 = "xin_kernel" ; then
+	sed -i --regexp-extended \
+	    -e 's:#define HAVE_OFED_COMPAT_RDMA :// External build only: #define HAVE_OFED_COMPAT_RDMA :g' \
+	    -e 's/([^a-zA-Z0-9_])HAVE_OFED_/\1IN_KERNEL_HAVE_OFED_/g' \
+		${TEST_DIR}/$1_pc/$1_pc.c
+fi
 ])
 
 #
@@ -740,30 +812,38 @@ _EOF
 # $2 - additional build flags (ccflags)
 # $3 - external kernel includes for lnet o2ib|gni
 # $4 - extra symbol in Psuedo.symvers (optional)
+# $5 - optional: external|in_kernel
 #
 AC_DEFUN([LB2_LINUX_CONFTEST_MAKEFILE], [
 	TEST_DIR=${TEST_DIR:-${ac_pwd}/_lpb}
 	test -d ${TEST_DIR} || mkdir -p ${TEST_DIR}
-	test -d ${TEST_DIR}/$1 || mkdir -p ${TEST_DIR}/$1
+	test -d ${TEST_DIR}/$1_pc || mkdir -p ${TEST_DIR}/$1_pc
 
-	file=${TEST_DIR}/$1/Makefile
+	file=${TEST_DIR}/$1_pc/Makefile
 	EXT_INCLUDE="$3"
 	EXT_SYMBOL="$4"
 	PSYM_FILE=""
 	if test "${EXT_SYMBOL}x" != "x" ; then
-		PSYM_FILE=${TEST_DIR}/$1/Psuedo.symvers
+		PSYM_FILE=${TEST_DIR}/$1_pc/Psuedo.symvers
 		echo -e "0x12345678\t${EXT_SYMBOL}\tvmlinux\tEXPORT_SYMBOL\t" > ${PSYM_FILE}
 	fi
 	XTRA_SYM=
-	if test "x$O2IBPATH" != "x"; then
-		if test "x$O2IBPATH" != "x$LINUX_OBJ"; then
-			XTRA_SYM="$O2IBPATH/Module.symvers"
+	NEED_MODULE_TESTED="yes"
+	if test "x$5" = "xexternal"; then
+		XTRA_SYM="$EXT_O2IB_SYMBOLS"
+		if test "x$EXTERNAL_KO2IBLND" = "xno" ; then
+			NEED_MODULE_TESTED="no"
 		fi
 	fi
+	if test "x$5" = "xin_kernel"; then
+		XTRA_SYM="$INT_O2IB_SYMBOLS"
+		if test "x$BUILT_IN_KO2IBLND" = "xno" ; then
+			NEED_MODULE_TESTED="no"
+	fi	fi
 
 	cat - <<_EOF >$file
 # Example command line to manually build source
-# make modules -C $LINUX_OBJ $ARCH_UM M=${TEST_DIR}/$1 $MAKE_KMOD_ENV
+# make modules -C $LINUX_OBJ $ARCH_UM M=${TEST_DIR}/$1_pc $MAKE_KMOD_ENV
 
 ${LD:+LD="$LD"}
 CC=$CC
@@ -783,6 +863,10 @@ LINUXINCLUDE += -Iinclude/generated
 LINUXINCLUDE += -I$LINUX/arch/$SUBARCH/include/uapi
 LINUXINCLUDE += -Iarch/$SUBARCH/include/generated/uapi
 LINUXINCLUDE += -I$LINUX/include/uapi -Iinclude/generated/uapi
+LINUXINCLUDE += -I$LINUX/arch/$SUBARCH/include/generated
+LINUXINCLUDE += -I$LINUX/arch/$SUBARCH/include/generated/uapi
+LINUXINCLUDE += -I$LINUX/include/generated
+LINUXINCLUDE += -I$LINUX/include/generated/uapi
 ifneq (\$(SOBJ),)
 LINUXINCLUDE += -include \$(SOBJ)/spl_config.h
 endif
@@ -798,10 +882,6 @@ ifneq (\$(SINC),)
 LINUXINCLUDE += -I\$(SINC)
 else
 LINUXINCLUDE += -I\$(ZINC)/include/spl
-LINUXINCLUDE += -I\$(ZINC)/include/zfs
-LINUXINCLUDE += -I\$(ZINC)/include/os/linux/spl
-LINUXINCLUDE += -I\$(ZINC)/include/os/linux/zfs
-LINUXINCLUDE += -I\$(ZINC)/include/os/linux/kernel
 endif
 endif
 LINUXINCLUDE += -include $CONFIG_INCLUDE
@@ -818,8 +898,21 @@ _EOF
 	m4_ifval($2, [echo "ccflags-y += $2" >>$file], [])
 
 	# Test case source
-	echo "obj-m := $1.o" >>$file
-	echo "obj-m += $1/" >>${TEST_DIR}/Makefile
+	echo "obj-m := $1_pc.o" >>$file
+
+	# Include the test case in the build, only if the result is not cached
+	AS_VAR_PUSHDEF([lb2_cache_name], [lb_cv_test_$1])
+	AS_IF(AS_VAR_TEST_SET(lb2_cache_name), [
+		# cached - result is known
+	], [
+		if test "x$NEED_MODULE_TESTED" != "xno" ; then
+			echo "obj-m += $1_pc/" >>${TEST_DIR}/Makefile
+			LB2_MODULES_COUNT=$((LB2_MODULES_COUNT + 1))
+		else
+			AS_VAR_SET([lb2_cache_name], [unused])
+		fi
+	])
+	AS_VAR_POPDEF([lb2_cache_name])
 ])
 
 #
@@ -834,11 +927,10 @@ AC_DEFUN([LB2_LINUX_TEST_COMPILE], [
 	L="$D/build.log.$1"
 	J=${TEST_JOBS:-$(nproc)}
 
-	AC_MSG_NOTICE([Making $1 in $D])
-	AC_MSG_NOTICE([KBUILD_MODPOST_NOFINAL="yes" make modules -k -j${J} -C $LINUX_OBJ $ARCH_UM M=${D} $MAKE_KMOD_ENV])
+	AC_MSG_NOTICE([KBUILD_MODPOST_NOFINAL="yes" make modules CC="$CC" -k -j${J} -C $LINUX_OBJ $ARCH_UM M=${D} $MAKE_KMOD_ENV])
 
 	AC_TRY_COMMAND([KBUILD_MODPOST_NOFINAL="yes"
-		make modules -k -j${J} -C $LINUX_OBJ $ARCH_UM M=${D} $MAKE_KMOD_ENV >${L} 2>&1])
+		make modules CC="$CC" -k -j${J} -C $LINUX_OBJ $ARCH_UM M=${D} $MAKE_KMOD_ENV >${L} 2>&1])
 	AS_IF([test -f ${L}],
 	      [AS_IF([test -f $2/Makefile],
 		     [mv $2/Makefile $2/Makefile.compile.$1])],
@@ -864,12 +956,18 @@ AC_DEFUN([LB2_LINUX_TEST_COMPILE], [
 AC_DEFUN([LB2_LINUX_TEST_COMPILE_ALL], [
 	TEST_DIR=${TEST_DIR:-${ac_pwd}/_lpb}
 	# Phase 1 - Compilation only, final linking is skipped.
-	LB2_LINUX_TEST_COMPILE([$1], [${TEST_DIR}], [$2])
-	for dir in $(awk '/^obj-m/ { print [$]3 }' \
-	    ${TEST_DIR}/Makefile.compile.$1); do
-		name=${dir%/}
-		touch ${TEST_DIR}/$name/$name.tested
-	done
+	AS_IF([test $((LB2_MODULES_COUNT + 0)) -gt 0], [
+		AC_MSG_NOTICE([building ${LB2_MODULES_COUNT} linux kernel compile tests for '$1'])
+		LB2_LINUX_TEST_COMPILE([$1], [${TEST_DIR}], [$2])
+		for dir in $(awk '/^obj-m/ { print [$]3 }' \
+		    ${TEST_DIR}/Makefile.compile.$1); do
+			name=${dir%/}
+			touch ${TEST_DIR}/$name/$name.tested
+		done
+		LB2_MODULES_COUNT=0
+	], [
+		AC_MSG_NOTICE([all linux kernel compile test results for '$1' are in-cache])
+	])
 ])
 
 #
@@ -881,6 +979,8 @@ AC_DEFUN([LB2_LINUX_TEST_COMPILE_ALL], [
 # $4 - extra cflags
 # $5 - external include paths
 # $6 - fake symvers entry
+# $7 - external: for extra ofed path/symvers
+#      in_kernel: for in-kernel-ofed defines
 #
 # NOTICE as all of the test cases are compiled in parallel tests may not
 # depend on the results other tests.
@@ -891,26 +991,29 @@ AC_DEFUN([LB2_LINUX_TEST_SRC], [
 	TEST_DIR=${TEST_DIR:-${ac_pwd}/_lpb}
 	AS_VAR_PUSHDEF([lb_test], [lb_cv_test_$1])
 	# Skip test write and build steps if the result is already known.
-	LB2_LINUX_CONFTEST_C([LB_LANG_PROGRAM([[$2]], [[$3]])], [$1_pc])
-	LB2_LINUX_CONFTEST_MAKEFILE([$1_pc], [$4], [$5], [$6])
+	LB2_LINUX_CONFTEST_C([$1], [$7], [LB_LANG_PROGRAM([[$2]], [[$3]])])
+	LB2_LINUX_CONFTEST_MAKEFILE([$1], [$4], [$5], [$6], [$7])
 	AS_VAR_POPDEF([lb_test])
 ])
 
 #
-# LB2_LINUX_TEST_RESULT
+# LB2_MSG_LINUX_TEST_RESULT
 #
-# $1 - *unique* name matching the LB2_LINUX_TEST_SRC macro
-# $2 - run on success (valid .ko generated)
-# $3 - run on failure (unable to compile)
+# $1 - Message
+# $2 - *unique* name matching the LB2_LINUX_TEST_SRC macro
+# $3 - run on success (valid .ko generated)
+# $4 - run on failure (unable to compile)
+# $5 - optional: module to enforce linking of .ko
 #
-AC_DEFUN([LB2_LINUX_TEST_RESULT],[
+AC_DEFUN([LB2_MSG_LINUX_TEST_RESULT],[
 	TEST_DIR=${TEST_DIR:-${ac_pwd}/_lpb}
-	AS_VAR_PUSHDEF([lb_test], [lb_cv_test_$1])
+	AS_VAR_PUSHDEF([lb_test], [lb_cv_test_$2])
 	D="$(realpath ${TEST_DIR})"
-	T=${D}/$1_pc
-	O=${T}/$1_pc
+	T=${D}/$2_pc
+	O=${T}/$2_pc
 	AS_IF([test -d ${T}], [
 		# test source exists, was the compile test run?
+		AS_IF(AS_VAR_TEST_SET(lb_test), [], [
 		AS_IF([test -f ${O}.tested],[
 			# compile test was run.
 		],[
@@ -921,8 +1024,7 @@ AC_DEFUN([LB2_LINUX_TEST_RESULT],[
 			for mf in $(ls -1 ${TEST_DIR}/Makefile.compile.*); do
 				ln -sf $mf ${D}/Makefile
 				KBUILD_MODPOST_NOFINAL="yes"
-				make modules -k -j${J} -C $LINUX_OBJ $ARCH_UM M=${D} >> rebuild.log 2>&1
-
+				make modules CC="$CC" -k -j${J} -C $LINUX_OBJ $ARCH_UM M=${D} $MAKE_KMOD_ENV >> rebuild.log 2>&1
 				for dir in $(awk '/^obj-m/ { print [$]3 }' ${D}/$mf); do
 					name=${dir%/}
 					AC_MSG_NOTICE([touch ${D}/$name/$name.tested])
@@ -931,27 +1033,47 @@ AC_DEFUN([LB2_LINUX_TEST_RESULT],[
 				rm ${D}/Makefile
 			done
 			# compile test was NOT run. Re-compile everything.
-		])
+		])])
 	],[
 		# test source does not exist:
 		AC_MSG_ERROR([
-*** No matching source for the "$1" test, check that
+*** No matching source for the "$2" test, check that
 *** both the test source and result macros refer to the same name.
 		])
 	])
-	# Abort if key does not exist
-	AS_IF([test -f ${O}.tested], [],
-		[AC_MSG_ERROR([*** Compile test for $1 was not run.])])
-	# If test was compiled and if we got an object ...
-	AS_IF([test -f ${O}.o], [touch ${O}.ko])
+	# If result is not yet cached examine the build output
+	AS_IF(AS_VAR_TEST_SET(lb_test), [], [
+		# Fail if the compile was not done.
+		AS_IF([test -f ${O}.tested], [],
+			[AC_MSG_ERROR([*** Compile test for $2 was not run.])])
+		# Default is to expect only the <module>.o be generated.
+		NEED_KO=0
+		# Require the <module>.ko file when "module" is passed
+		AS_IF([test "X'$5'" == "X'module'"], [NEED_KO=1])
+		# If test was compiled and if we got an object ...
+		AS_IF([test ${NEED_KO} -eq 0], [AS_IF([test ! -f ${O}.ko], [
+			AS_IF([test -f ${O}.o], [touch ${O}.ko])])])
+	])
 	# key is valid. Cache should be valid, set the variable
-	AC_CACHE_CHECK([for $1], lb_test,
+	AC_CACHE_CHECK([$1], lb_test,
 		AS_IF([test -f ${O}.ko],
 			AS_VAR_SET([lb_test], [yes]),
 			AS_VAR_SET([lb_test], [no])))
 	# Read the variable and run the caller's actions for yes (arg2) or no (arg3)
-	AS_VAR_IF([lb_test], [yes], $2, $3)
+	AS_VAR_IF([lb_test], [yes], $3, $4)
 	AS_VAR_POPDEF([lb_test])
+]) # LB3_LINUX_TEST_RESULT
+
+#
+# LB2_LINUX_TEST_RESULT
+#
+# $1 - *unique* name matching the LB2_LINUX_TEST_SRC macro
+# $2 - run on success (valid .ko generated)
+# $3 - run on failure (unable to compile)
+# $4 - compile only
+#
+AC_DEFUN([LB2_LINUX_TEST_RESULT],[
+	LB2_MSG_LINUX_TEST_RESULT([for $1], [$1], [$2], [$3], [$4])
 ]) # LB2_LINUX_TEST_RESULT
 
 #
@@ -981,8 +1103,8 @@ AC_DEFUN([LB2_SRC_CHECK_CONFIG], [
 #   $3 - do 'no'
 #
 AC_DEFUN([LB2_TEST_CHECK_CONFIG], [
-	AC_MSG_CHECKING([if Linux kernel was built with CONFIG_$1])
-	LB2_LINUX_TEST_RESULT([config_$1], [
+	LB2_MSG_LINUX_TEST_RESULT([if Linux kernel was built with CONFIG_$1],
+	[config_$1], [
 		$2
 	],[
 		$3
@@ -1018,10 +1140,82 @@ AC_DEFUN([LB2_SRC_CHECK_CONFIG_IM], [
 #   $3 - do 'no'
 #
 AC_DEFUN([LB2_TEST_CHECK_CONFIG_IM], [
-	AC_MSG_CHECKING([if Linux kernel enabled CONFIG_$1 as built-in or module])
-	LB2_LINUX_TEST_RESULT([config_im_$1], [
+	LB2_MSG_LINUX_TEST_RESULT([if Linux kernel enabled CONFIG_$1 as built-in or module],
+	[config_im_$1], [
 		$2
 	],[
 		$3
 	])
 ]) # LB2_TEST_CHECK_CONFIG_IM
+
+#
+# LB2_CHECK_LINUX_HEADER_SRC
+#
+#   $1 - Header file
+#   $2 - Extra CFLAGS (ex: -Werror)
+#
+AC_DEFUN([LB2_CHECK_LINUX_HEADER_SRC], [
+	TEST_DIR=${TEST_DIR:-${ac_pwd}/_lpb}
+	UNIQUE_ID=$(echo $1 | tr /. __)
+	AS_VAR_PUSHDEF([lb_test], [lb_cv_test_${UNIQUE_ID}])
+	# Skip test write and build steps if the result is already known.
+	LB2_LINUX_CONFTEST_C([${UNIQUE_ID}], [], [LB_LANG_PROGRAM([@%:@include <$1>])])
+	LB2_LINUX_CONFTEST_MAKEFILE([${UNIQUE_ID}], [$2])
+	AS_VAR_POPDEF([lb_test])
+])
+
+#
+# LB2_CHECK_LINUX_HEADER_RESULT
+#
+#   $1 - Header file
+#   $2 - On Success
+#   $3 - On Failure
+#
+AC_DEFUN([LB2_CHECK_LINUX_HEADER_RESULT], [
+	UNIQUE_ID=$(echo $1 | tr /. __)
+	LB2_MSG_LINUX_TEST_RESULT([for linux header $1], [${UNIQUE_ID}],
+				  [$2], [$3])
+])
+
+#
+# LB2_OFED_TEST_SRC() Used for o2ib in-kernel|external configure tests
+#
+# $1 - *unique* name
+# $2 - global
+# $3 - source
+# $4 - extra cflags
+# $5 - external include paths
+# $6 - fake symvers entry
+# $7 - external: for extra ofed path/symvers
+#      in_kernel: for in-kernel-ofed defines
+#
+AC_DEFUN([LB2_OFED_TEST_SRC], [
+	LB2_LINUX_TEST_SRC([external_$1], [$2], [$3], [$4], [$5], [$6], [external])
+	LB2_LINUX_TEST_SRC([in_kernel_$1], [$2], [$3], [$4], [], [$6], [in_kernel])
+])
+
+#
+# LB2_OFED_TEST_RESULTS() Used for o2ib in-kernel|external configure tests
+#
+# $1 - Message
+# $2 - *unique* name matching the LB2_LINUX_TEST_SRC macro
+# $3 - run on success (compile success, optional .ko generated)
+# $4 - optional: 'module' to enforce .ko successfully built.
+#
+# checking if 'rdma_create_id' wants four args mlnx... no
+#
+AC_DEFUN([LB2_OFED_TEST_RESULTS], [
+	LB2_MSG_LINUX_TEST_RESULT(
+		[(external) if $1],
+		[external_$2],
+		[AC_DEFINE_UNQUOTED([$3], 1, [(external) $1])],
+		[], # else statement not available
+		[$4])
+
+	# in-kernel tests ... NOTE: IN_KERNEL_ here matches sed in Makefile.in
+	LB2_MSG_LINUX_TEST_RESULT(
+		[(in-kernel) if $1], [in_kernel_$2],
+		[AC_DEFINE_UNQUOTED([IN_KERNEL_$3], 1, [(in kernel) $1])],
+		[], # else statement not available
+		[$4])
+])
