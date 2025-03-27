@@ -193,6 +193,15 @@ AC_DEFUN([LB_KABI_CHECKS], [
 			AS_IF([test "x$enable_zfs" = xyes],
 				[LZ_ZFS_KABI_SERIAL])
 
+			# Run this early: the lsm_context spelling is used by
+			# subsequent compatibility probes.
+			LC_SRC_STRUCT_LSM_CONTEXT_EARLY
+
+			LB2_LINUX_TEST_COMPILE_ALL([early],
+				[for available lustre kapi interfaces])
+
+			LC_STRUCT_LSM_CONTEXT_EARLY
+
 			# Run any parallel compile tests
 			LB_PROG_LINUX_SRC
 			LIBCFS_PROG_LINUX_SRC

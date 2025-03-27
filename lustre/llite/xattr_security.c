@@ -47,16 +47,23 @@
 # define XATTR_NAME_SELINUX XATTR_SECURITY_PREFIX XATTR_SELINUX_SUFFIX
 #endif
 
+#ifdef HAVE_SECURITY_DENTRY_INIT_SECURTY_WITH_CTX
+#define HAVE_SECURITY_DENTRY_INIT_WITH_XATTR_NAME_ARG 1
+#endif
+
 /*
  * Check for LL_SBI_FILE_SECCTX before calling.
  */
 int ll_dentry_init_security(struct dentry *dentry, int mode, struct qstr *name,
 			    const char **secctx_name, __u32 *secctx_name_size,
-			    void **secctx, __u32 *secctx_size)
+			    void **secctx, __u32 *secctx_size, int *secctx_slot)
 {
 	struct ll_sb_info *sbi = ll_s2sbi(dentry->d_sb);
 #ifdef HAVE_SECURITY_DENTRY_INIT_WITH_XATTR_NAME_ARG
 	const char *secctx_name_lsm = NULL;
+#endif
+#ifdef HAVE_SECURITY_DENTRY_INIT_SECURTY_WITH_CTX
+	struct lsm_context ctx = {};
 #endif
 	int rc;
 
@@ -81,7 +88,11 @@ int ll_dentry_init_security(struct dentry *dentry, int mode, struct qstr *name,
 #ifdef HAVE_SECURITY_DENTRY_INIT_WITH_XATTR_NAME_ARG
 					   &secctx_name_lsm,
 #endif
-					   secctx, secctx_size);
+#ifdef HAVE_SECURITY_DENTRY_INIT_SECURTY_WITH_CTX
+				   &ctx);
+#else
+				   secctx, secctx_size);
+#endif
 	/* ignore error if the hook is not supported by the LSM module */
 	if (rc == -EOPNOTSUPP)
 		return 0;
