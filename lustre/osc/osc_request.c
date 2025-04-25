@@ -3167,11 +3167,11 @@ int osc_enqueue_base(struct obd_export *exp, struct ldlm_res_id *res_id,
 	if (*flags & (LDLM_FL_TEST_LOCK | LDLM_FL_MATCH_LOCK))
 		RETURN(-ENOLCK);
 
-        /* users of osc_enqueue() can pass this flag for ldlm_lock_match() */
-        *flags &= ~LDLM_FL_BLOCK_GRANTED;
+	/* users of osc_enqueue() can pass this flag for ldlm_lock_match() */
+	*flags &= ~LDLM_FL_BLOCK_GRANTED;
 
-        rc = ldlm_cli_enqueue(exp, &req, einfo, res_id, policy, flags, lvb,
-			      sizeof(*lvb), LVB_T_OST, &lockh, async);
+	rc = ldlm_cli_enqueue(exp, &req, einfo, res_id, policy, flags, lvb,
+				sizeof(*lvb), LVB_T_OST, &lockh, async);
 	if (async) {
 		if (!rc) {
 			struct osc_enqueue_args *aa;
@@ -3192,6 +3192,8 @@ int osc_enqueue_base(struct obd_export *exp, struct ldlm_res_id *res_id,
 				 * about the result of the enqueue. */
 				aa->oa_lvb    = NULL;
 				aa->oa_flags  = NULL;
+				/* don't block async enqueue RPCs trying to resend */
+				req->rq_no_delay = req->rq_no_resend = 1;
 			}
 
 			req->rq_interpret_reply = osc_enqueue_interpret;
