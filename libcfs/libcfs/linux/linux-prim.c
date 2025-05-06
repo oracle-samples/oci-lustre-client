@@ -226,7 +226,11 @@ void __init cfs_arch_init(void)
 void __exit cfs_arch_exit(void)
 {
 	/* exit_libcfs_vfree_atomic */
+#ifdef HAVE_FLUSH___WORKQUEUE
+	__flush_workqueue(system_wq);
+#else
 	flush_workqueue(system_wq);
+#endif
 }
 
 int cfs_kernel_write(struct file *filp, const void *buf, size_t count,
