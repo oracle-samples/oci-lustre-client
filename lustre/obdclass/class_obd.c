@@ -668,6 +668,8 @@ static int __init obdclass_init(void)
 
 	register_oom_notifier(&obdclass_oom);
 
+	libcfs_kkuc_init();
+
 	err = libcfs_setup();
 	if (err)
 		return err;
@@ -682,8 +684,6 @@ static int __init obdclass_init(void)
 		       err);
 		return err;
 	}
-
-	libcfs_kkuc_init();
 
 	err = obd_zombie_impexp_init();
 	if (err)
