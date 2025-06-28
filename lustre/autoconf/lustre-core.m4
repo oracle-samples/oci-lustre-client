@@ -1138,6 +1138,26 @@ AC_DEFUN([LC_HAVE_BLK_INTEGRITY_ITER], [
 ]) # LC_HAVE_BLK_INTEGRITY_ITER
 
 #
+# LC_HAVE_LM_GRANT_2ARGS
+#
+# 3.17 removed unused argument from lm_grant
+#
+AC_DEFUN([LC_SRC_HAVE_LM_GRANT_2ARGS], [
+	LB2_LINUX_TEST_SRC([lock_manager_operations_lm_grant], [
+		#include <linux/fs.h>
+	],[
+		((struct lock_manager_operations *)NULL)->lm_grant(NULL, 0);
+	])
+])
+AC_DEFUN([LC_HAVE_LM_GRANT_2ARGS], [
+	LB2_MSG_LINUX_TEST_RESULT([if 'lock_manager_operations.lm_grant' takes two args],
+	[lock_manager_operations_lm_grant], [
+		AC_DEFINE(HAVE_LM_GRANT_2ARGS, 1,
+			[lock_manager_operations.lm_grant takes two args])
+	])
+]) # LC_HAVE_LM_GRANT_2ARGS
+
+#
 # LC_NFS_FILLDIR_USE_CTX
 #
 # 3.18 kernel moved from void cookie to struct dir_context
@@ -2564,15 +2584,18 @@ AC_DEFUN([LC_INTERVAL_TREE_CACHED], [
 #
 # 4.14 introduced IS_ENCRYPTED and S_ENCRYPTED
 #
-AC_DEFUN([LC_IS_ENCRYPTED], [
-LB_CHECK_COMPILE([if IS_ENCRYPTED is defined],
-is_encrypted, [
-	#include <linux/fs.h>
-],[
-	IS_ENCRYPTED((struct inode *)0);
-],[
-	has_is_encrypted="yes"
+AC_DEFUN([LC_SRC_IS_ENCRYPTED], [
+	LB2_LINUX_TEST_SRC([is_encrypted], [
+		#include <linux/fs.h>
+	],[
+		(void)IS_ENCRYPTED((struct inode *)1);
+	])
 ])
+AC_DEFUN([LC_IS_ENCRYPTED], [
+	LB2_MSG_LINUX_TEST_RESULT([if IS_ENCRYPTED is defined],
+	[is_encrypted], [
+		has_is_encrypted="yes"
+	])
 ]) # LC_IS_ENCRYPTED used by LC_CONFIG_CRYPTO
 
 #
@@ -3265,21 +3288,21 @@ AC_DEFUN([LC_HAVE_FAULT_IN_IOV_ITER_READABLE], [
 # Kernel version v5.15-rc1 commit 730633f0b7f951726e87f912a6323641f674ae34
 # mm: Protect operations adding pages to page cache with invalidate_lock
 #
-AC_DEFUN([LC_HAVE_INVALIDATE_LOCK], [
-tmp_flags="$EXTRA_KCFLAGS"
-EXTRA_KCFLAGS="-Werror"
-LB_CHECK_COMPILE([if have address_space have invalidate_lock member],
-address_space_invalidate_lock, [
+AC_DEFUN([LC_SRC_HAVE_INVALIDATE_LOCK], [
+	LB2_LINUX_TEST_SRC([address_space_invalidate_lock], [
 		#include <linux/fs.h>
 	],[
 		struct address_space *mapping = NULL;
 
 		filemap_invalidate_lock(mapping);
-	],[
+	],[-Werror])
+])
+AC_DEFUN([LC_HAVE_INVALIDATE_LOCK], [
+	LB2_MSG_LINUX_TEST_RESULT([if filemap_invalidate_lock() is available],
+	[address_space_invalidate_lock], [
 		AC_DEFINE(HAVE_INVALIDATE_LOCK, 1,
-			[address_space invalidate_lock member exists])
+			[filemap_invalidate_lock() is available])
 	])
-EXTRA_KCFLAGS="$tmp_flags"
 ]) # LC_HAVE_INVALIDATE_LOCK
 
 #
@@ -5803,6 +5826,7 @@ AC_DEFUN([LC_PROG_LINUX_RESULTS], [
 	LC_HAVE_GET_INODE_USAGE
 
 	# 4.14
+	LC_PAGEVEC_INIT_ONE_PARAM
 	LC_BI_BDEV
 	LC_INTERVAL_TREE_CACHED
 
@@ -5855,7 +5879,6 @@ AC_DEFUN([LC_PROG_LINUX_RESULTS], [
 
 	# 5.15
 	LC_HAVE_GET_ACL_RCU_ARG
-	LC_HAVE_INVALIDATE_LOCK
 	LC_HAVE_FAULT_IN_IOV_ITER_READABLE
 
 	# 5.16
@@ -5865,7 +5888,6 @@ AC_DEFUN([LC_PROG_LINUX_RESULTS], [
 	LC_HAVE_KIOCB_COMPLETE_2ARGS
 	LC_FOLIO_MEMCG_LOCK_EXPORTED
 	LC_EXPORTS_DELETE_FROM_PAGE_CACHE
-	LC_HAVE_WB_STAT_MOD
 
 	# 5.17
 	LC_HAVE_INVALIDATE_FOLIO
