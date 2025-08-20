@@ -716,6 +716,20 @@ static inline void ll_security_release_secctx(char *secdata, u32 seclen,
 #endif
 }
 
+#ifdef HAVE_IOPS_MKDIR_RETURNS_DENTRY
+#define ll_vfs_mkdir(id, inode, dentry, mode)	\
+	vfs_mkdir((id), (inode), (dentry), (mode))
+#else
+#define ll_vfs_mkdir(i, inode, dentry, mode) ({				\
+	int rc = vfs_mkdir((i), (inode), (dentry), (mode));		\
+	if (rc) {									\
+		dput((dentry));								\
+		dentry = ERR_PTR(rc);							\
+	}										\
+	(dentry);										\
+})
+#endif
+
 #if !defined(HAVE_USER_NAMESPACE_ARG) && !defined(HAVE_MNT_IDMAP_ARG)
 #define posix_acl_update_mode(ns, inode, mode, acl) \
 	posix_acl_update_mode(inode, mode, acl)
