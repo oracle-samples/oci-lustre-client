@@ -124,11 +124,9 @@ static void __mdunlink_iterate_helper(struct lnet_handle_md *bd_mds,
  * error.
  */
 struct ptlrpc_bulk_desc *ptlrpc_prep_bulk_exp(struct ptlrpc_request *req,
-					      unsigned nfrags, unsigned max_brw,
-					      unsigned int type,
-					      unsigned portal,
-					      const struct ptlrpc_bulk_frag_ops
-						*ops)
+					    unsigned nfrags, unsigned max_brw,
+					    unsigned int type, unsigned portal,
+					    const struct ptlrpc_bulk_frag_ops *ops)
 {
 	struct obd_export *exp = req->rq_export;
 	struct ptlrpc_bulk_desc *desc;
@@ -140,16 +138,18 @@ struct ptlrpc_bulk_desc *ptlrpc_prep_bulk_exp(struct ptlrpc_request *req,
 	if (desc == NULL)
 		RETURN(NULL);
 
-        desc->bd_export = class_export_get(exp);
-        desc->bd_req = req;
+	desc->bd_export = class_export_get(exp);
+	desc->bd_req = req;
+	desc->bd_is_srv = 1;
 
-        desc->bd_cbid.cbid_fn  = server_bulk_callback;
-        desc->bd_cbid.cbid_arg = desc;
+	desc->bd_cbid.cbid_fn  = server_bulk_callback;
+	desc->bd_cbid.cbid_arg = desc;
 
-        /* NB we don't assign rq_bulk here; server-side requests are
-         * re-used, and the handler frees the bulk desc explicitly. */
+	/* NB we don't assign rq_bulk here; server-side requests are
+	 * re-used, and the handler frees the bulk desc explicitly. 
+	 */
 
-        return desc;
+	return desc;
 }
 EXPORT_SYMBOL(ptlrpc_prep_bulk_exp);
 
