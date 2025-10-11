@@ -5133,6 +5133,53 @@ test_62() {
 }
 run_test 62 "e2fsck with encrypted files"
 
+test_83() {
+	local user=$(getent passwd $RUNAS_ID | cut -d: -f1)
+	local grp=grptest83
+	local grpid=5000
+	local subd=subdir
+
+	(( $MDS1_VERSION >= $(version_code 2.15.8) )) ||
+		skip "Need MDS with LU-19462 suppgids in cross-MDT ops"
+
+	(( MDSCOUNT >= 2 )) || skip "needs >= 2 MDTs"
+
+	do_nodes $(comma_list $(all_mdts_nodes)) \
+		$LCTL set_param mdt.*.identity_upcall=NONE
+
+	$LFS mkdir -i1 -c1 $DIR/$tdir || error "mkdir $DIR/$tdir failed"
+	$LFS mkdir -i0 -c1 $DIR/$tdir/$subd ||
+		error "mkdir $DIR/$tdir/$subd failed"
+	touch $DIR/$tdir/$subd/$tfile ||
+		error "touch $DIR/$tdir/$subd/$tfile failed"
+
+	# create a specific group and add it as a supplementary group for $USER0
+	groupadd -g $grpid $grp
+	stack_trap "groupdel $grp" EXIT
+	usermod -aG $grp $user
+	stack_trap "gpasswd -d $user $grp" EXIT
+
+	chown -R root:$grp $DIR/$tdir || error "chown $DIR/$tdir failed"
+	chmod 770 $DIR/$tdir || error "chmod $DIR/$tdir failed"
+	chmod 770 $DIR/$tdir/$subd || error "chmod $DIR/$tdir/$subd failed"
+	chmod 660 $DIR/$tdir/$subd/$tfile ||
+		error "chmod $DIR/$tdir/$subd/$tfile failed"
+
+	# unmount and remount to purge cache
+	umount_client $MOUNT || error "umount $MOUNT failed"
+	if is_mounted $MOUNT2; then
+		umount_client $MOUNT2 || error "umount $MOUNT2 failed"
+		stack_trap "zconf_mount $HOSTNAME $MOUNT2" EXIT
+	fi
+	zconf_mount $HOSTNAME $MOUNT ||
+		error "unable to remount client"
+	wait_ssk
+
+	su - $USER0 -c "ls $DIR/$tdir/$subd/*" ||
+		error "ls $DIR/$tdir/$subd/ as $USER0 failed"
+}
+run_test 83 "Suppgids for cross-MDT ops"
+
 log "cleanup: ======================================================"
 
 sec_unsetup() {
