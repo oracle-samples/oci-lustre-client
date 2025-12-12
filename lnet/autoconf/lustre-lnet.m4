@@ -850,6 +850,27 @@ in_dev_for_each_ifa_rtnl_test, [
 EXTRA_KCFLAGS="$tmp_flags"
 ]) # LN_HAVE_IN_DEV_FOR_EACH_IFA_RTNL
 
+# LN_SRC_HAVE_NETDEV_LOCK_OPS
+#
+# netdev_lock_ops() added in v6.14-rc4-1113-gd4c22ec680 to lock ethtool changes
+#
+AC_DEFUN([LN_SRC_HAVE_NETDEV_LOCK_OPS], [
+	LB2_LINUX_TEST_SRC([netdev_lock_ops], [
+		#include <net/netdev_lock.h>
+	],[
+		netdev_lock_ops(NULL);
+	],[-Werror])
+])
+AC_DEFUN([LN_HAVE_NETDEV_LOCK_OPS], [
+	LB2_MSG_LINUX_TEST_RESULT([if 'netdev_lock_ops' exist],
+	[netdev_lock_ops], [
+		AC_DEFINE(HAVE_NETDEV_LOCK_OPS, 1,
+			['netdev_lock_ops' is present])
+	])
+]) # LN_SRC_HAVE_NETDEV_LOCK_OPS
+
+#
+
 #
 # LN_IB_DEVICE_OPS_EXISTS
 #
@@ -919,8 +940,15 @@ AC_COMPILE_IFELSE([AC_LANG_SOURCE([
 ]) # LN_USR_RDMA
 
 
-AC_DEFUN([LN_PROG_LINUX_SRC], [])
-AC_DEFUN([LN_PROG_LINUX_RESULTS], [])
+AC_DEFUN([LN_PROG_LINUX_SRC], [
+	# 6.15
+	LN_SRC_HAVE_NETDEV_LOCK_OPS
+])
+
+AC_DEFUN([LN_PROG_LINUX_RESULTS], [
+	# 6.15
+	LN_HAVE_NETDEV_LOCK_OPS
+])
 
 #
 # LN_PROG_LINUX

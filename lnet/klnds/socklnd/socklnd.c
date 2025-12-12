@@ -1945,6 +1945,7 @@ ksocknal_handle_link_state_change(struct net_device *dev,
 	struct ksock_net *net;
 	struct ksock_net *cnxt;
 	int ifindex;
+	int state;
 	unsigned char link_down = !(operstate == IF_OPER_UP);
 	struct in_device *in_dev;
 	bool found_ip = false;
@@ -1996,10 +1997,9 @@ ksocknal_handle_link_state_change(struct net_device *dev,
 			CDEBUG(D_NET, "set link fatal state to 1\n");
 			atomic_set(&ni->ni_fatal_error_on, link_down);
 		} else {
-			CDEBUG(D_NET, "set link fatal state to %u\n",
-			       (ksocknal_get_link_status(dev) == 0));
-			atomic_set(&ni->ni_fatal_error_on,
-				   (ksocknal_get_link_status(dev) == 0));
+			state = (lnet_get_link_status_locked(dev) == 0);
+			CDEBUG(D_NET, "set link fatal state to %u\n", state);
+			lnet_set_link_fatal_state(ni, state);
 		}
 	}
 out:
