@@ -752,27 +752,6 @@ LB_CHECK_EXPORT([kmap_to_page], [mm/highmem.c],
 ]) # LN_EXPORT_KMAP_TO_PAG
 
 #
-# LN_HAVE_HYPERVISOR_IS_TYPE
-#
-# 4.14 commit 79cc74155218316b9a5d28577c7077b2adba8e58
-# x86/paravirt: Provide a way to check for hypervisors
-#
-AC_DEFUN([LN_HAVE_HYPERVISOR_IS_TYPE], [
-tmp_flags="$EXTRA_KCFLAGS"
-EXTRA_KCFLAGS="-Werror"
-LB_CHECK_COMPILE([if hypervisor_is_type function is available],
-hypervisor_is_type_exists, [
-	#include <asm/hypervisor.h>
-],[
-	(void)hypervisor_is_type(X86_HYPER_NATIVE);
-],[
-	AC_DEFINE(HAVE_HYPERVISOR_IS_TYPE, 1,
-		[hypervisor_is_type function exists])
-])
-EXTRA_KCFLAGS="$tmp_flags"
-]) # LN_HAVE_HYPERVISOR_IS_TYPE
-
-#
 # LN_HAVE_ORACLE_OFED_EXTENSIONS
 #
 # Oracle UEK 5
@@ -940,12 +919,38 @@ AC_COMPILE_IFELSE([AC_LANG_SOURCE([
 ]) # LN_USR_RDMA
 
 
+#
+# LN_CONFIG_SENDPAGE_OK
+#
+# Kernel commit v5.9-rc6-325-gc381b07941 added sendpage_ok().
+#
+AC_DEFUN([LN_SRC_CONFIG_SENDPAGE_OK], [
+	LB2_LINUX_TEST_SRC([sendpage_ok], [
+		#include <linux/net.h>
+	],[
+		struct page *page = NULL;
+		(void)sendpage_ok(page);
+	],[-Werror])
+])
+
+AC_DEFUN([LN_CONFIG_SENDPAGE_OK], [
+	LB2_MSG_LINUX_TEST_RESULT([if sendpage_ok() is available],
+	[sendpage_ok], [
+		AC_DEFINE(HAVE_SENDPAGE_OK, 1,
+			[sendpage_ok() is available])
+	])
+])
+
 AC_DEFUN([LN_PROG_LINUX_SRC], [
+	# 5.9
+	LN_SRC_CONFIG_SENDPAGE_OK
 	# 6.15
 	LN_SRC_HAVE_NETDEV_LOCK_OPS
 ])
 
 AC_DEFUN([LN_PROG_LINUX_RESULTS], [
+	# 5.9
+	LN_CONFIG_SENDPAGE_OK
 	# 6.15
 	LN_HAVE_NETDEV_LOCK_OPS
 ])
@@ -969,7 +974,6 @@ LN_CONFIG_SK_DATA_READY
 # 4.x
 LN_CONFIG_SOCK_CREATE_KERN
 # 4.14
-LN_HAVE_HYPERVISOR_IS_TYPE
 LN_HAVE_ORACLE_OFED_EXTENSIONS
 # 4.17
 LN_CONFIG_SOCK_GETNAME

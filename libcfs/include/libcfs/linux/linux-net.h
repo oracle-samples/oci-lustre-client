@@ -159,4 +159,11 @@ static inline int tcp_sock_set_keepcnt(struct sock *sk, int opt)
 #endif /* HAVE_TCP_SOCK_SET_KEEPCNT */
 #endif /* HAVE_KERNEL_SETSOCKOPT */
 
+#if !defined(HAVE_SENDPAGE_OK)
+static inline bool sendpage_ok(struct page *page)
+{
+	return true;
+}
+#endif /* HAVE_SENDPAGE_OK */
+
 #endif /* __LIBCFS_LINUX_NET_H__ */
