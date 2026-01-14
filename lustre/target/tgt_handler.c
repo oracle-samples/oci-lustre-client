@@ -1827,7 +1827,7 @@ static int tgt_checksum_niobuf(struct lu_target *tgt,
 
 				/* LU-8376 to preserve original index for
 				 * display in dump_all_bulk_pages() */
-				np->index = i;
+				page_folio(np)->index = i;
 
 				cfs_crypto_hash_update_page(req, np, off,
 							    len);
@@ -1859,7 +1859,7 @@ static int tgt_checksum_niobuf(struct lu_target *tgt,
 
 				/* LU-8376 to preserve original index for
 				 * display in dump_all_bulk_pages() */
-				np->index = i;
+				page_folio(np)->index = i;
 
 				cfs_crypto_hash_update_page(req, np, off,
 							    len);
@@ -2075,7 +2075,7 @@ static int tgt_checksum_niobuf_t10pi(struct lu_target *tgt,
 
 				/* LU-8376 to preserve original index for
 				 * display in dump_all_bulk_pages() */
-				np->index = i;
+				page_folio(np)->index = i;
 
 				cfs_crypto_hash_update_page(req, np, off,
 							    len);
@@ -2197,7 +2197,7 @@ static int tgt_checksum_niobuf_t10pi(struct lu_target *tgt,
 
 				/* LU-8376 to preserve original index for
 				 * display in dump_all_bulk_pages() */
-				np->index = i;
+				page_folio(np)->index = i;
 
 				cfs_crypto_hash_update_page(req, np, off,
 							    len);

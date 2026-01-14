@@ -2238,6 +2238,87 @@ static int osd_trans_cb_add(struct thandle *th, struct dt_txn_commit_cb *dcb)
 	return 0;
 }
 
+struct osd_delayed_iput_work {
+	struct work_struct diw_work;
+	struct inode	  *diw_inode;
+};
+
+static void osd_delayed_iput_fn(struct work_struct *work)
+{
+	struct osd_delayed_iput_work *diwork;
+	struct inode *inode;
+
+	diwork = container_of(work, struct osd_delayed_iput_work, diw_work);
+	inode = diwork->diw_inode;
+	CDEBUG(D_INODE, "%s: delayed iput (ino=%lu)\n",
+	       inode->i_sb->s_id, inode->i_ino);
+	iput(inode);
+	OBD_FREE_PTR(diwork);
+}
+
+noinline static void osd_delayed_iput(struct inode *inode,
+				      struct osd_delayed_iput_work *diwork)
+{
+	if (!diwork) {
+		iput(inode);
+	} else {
+		INIT_WORK(&diwork->diw_work, osd_delayed_iput_fn);
+		diwork->diw_inode = inode;
+		queue_work(LDISKFS_SB(inode->i_sb)->s_misc_wq,
+			   &diwork->diw_work);
+	}
+}
+
+static void osd_drop_preallocated_space(struct osd_object *o)
+{
+	struct inode *inode = o->oo_inode;
+	struct address_space *mapping = inode->i_mapping;
+	struct page *page;
+	int rc;
+
+	/*
+	 * we have to deallocate the space preallocated in
+	 * osd_ldiskfs_write_fast() because e2fsck can not
+	 * handle the orphan list (where we put inodes with
+	 * preallocated space) properly and e2fsck is used
+	 * in testing to verify filesystem's consitency.
+	 * ext4 on its own can handle the orphan list doing
+	 * deallocation at mount.
+	 */
+	inode_lock(inode);
+	rc = ldiskfs_truncate(inode);
+	inode_unlock(inode);
+	if (rc) {
+		CERROR("%s: can't truncate: rc=%d\n",
+		       osd_obj2dev(o)->od_svname, rc);
+		return;
+	}
+	LASSERT(list_empty(&LDISKFS_I(inode)->i_orphan));
+
+	if ((i_size_read(inode) & PAGE_MASK) == 0)
+		return;
+
+	/*
+	 * we need to drop jbd buffers on the last partial page,
+	 * otherwise ext4_invalidatepage() makes a warning with
+	 * a backtrace.
+	 * XXX: support for sub-page buffers
+	 */
+	page = find_or_create_page(mapping, i_size_read(inode) >> PAGE_SHIFT,
+				   mapping_gfp_constraint(mapping, ~__GFP_FS));
+	if (!page)
+		return;
+
+	rc = osd_jbd_invalidate_page(LDISKFS_SB(inode->i_sb)->s_journal,
+				     page, 0, PAGE_SIZE);
+	LASSERTF(rc == 0, "  last page %lu %s%s rc=%d\n",
+		 folio_index_page(page),
+		 PageChecked(page) ? "C" : "", PageDirty(page) ? "D" : "", rc);
+
+	unlock_page(page);
+	put_page(page);
+}
+
 /*
  * Called just before object is freed. Releases all resources except for
  * object itself (that is released by osd_object_free()).

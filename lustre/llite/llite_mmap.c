@@ -174,7 +174,7 @@ static int ll_page_mkwrite0(struct vm_area_struct *vma, struct page *vmpage,
 	if (IS_ERR(env))
 		RETURN(PTR_ERR(env));
 
-	io = ll_fault_io_init(env, vma, vmpage->index, true);
+	io = ll_fault_io_init(env, vma, folio_index_page(vmpage), true);
 	if (IS_ERR(io))
 		GOTO(out, result = PTR_ERR(io));
 
@@ -196,37 +196,37 @@ static int ll_page_mkwrite0(struct vm_area_struct *vma, struct page *vmpage,
 
 	sigprocmask(SIG_SETMASK, &old, NULL);
 
-        if (result == 0) {
-                lock_page(vmpage);
-                if (vmpage->mapping == NULL) {
-                        unlock_page(vmpage);
+	if (result == 0) {
+		lock_page(vmpage);
+		if (vmpage->mapping == NULL) {
+			unlock_page(vmpage);
 
-                        /* page was truncated and lock was cancelled, return
-                         * ENODATA so that VM_FAULT_NOPAGE will be returned
-                         * to handle_mm_fault(). */
-                        if (result == 0)
-                                result = -ENODATA;
-                } else if (!PageDirty(vmpage)) {
-                        /* race, the page has been cleaned by ptlrpcd after
-                         * it was unlocked, it has to be added into dirty
-                         * cache again otherwise this soon-to-dirty page won't
-                         * consume any grants, even worse if this page is being
-                         * transferred because it will break RPC checksum.
-                         */
-                        unlock_page(vmpage);
+			/* page was truncated and lock was cancelled, return
+			 * ENODATA so that VM_FAULT_NOPAGE will be returned
+			 * to handle_mm_fault(). 
+			 */
+			if (result == 0)
+				result = -ENODATA;
+		} else if (!PageDirty(vmpage)) {
+			/* race, the page has been cleaned by ptlrpcd after
+			 * it was unlocked, it has to be added into dirty
+			 * cache again otherwise this soon-to-dirty page won't
+			 * consume any grants, even worse if this page is being
+			 * transferred because it will break RPC checksum.
+			 */
+			unlock_page(vmpage);
 
-                        CDEBUG(D_MMAP, "Race on page_mkwrite %p/%lu, page has "
-                               "been written out, retry.\n",
-                               vmpage, vmpage->index);
+			CDEBUG(D_MMAP, "Race on page_mkwrite %p/%lu, page has been written out, retry.\n",
+				   vmpage, folio_index_page(vmpage));
 
-                        *retry = true;
-                        result = -EAGAIN;
-                }
+			*retry = true;
+			result = -EAGAIN;
+		}
 
 		if (result == 0)
 			set_bit(LLIF_DATA_MODIFIED, &lli->lli_flags);
-        }
-        EXIT;
+    }
+    EXIT;
 
 out_io:
 	cl_io_fini(env, io);
@@ -455,18 +455,18 @@ restart:
 out:
 	if (vmf->page && result == VM_FAULT_LOCKED) {
 		ll_rw_stats_tally(ll_i2sbi(file_inode(vma->vm_file)),
-				  current->pid, vma->vm_file->private_data,
-				  cl_offset(NULL, vmf->page->index), PAGE_SIZE,
-				  READ);
+								   current->pid, vma->vm_file->private_data,
+				  				   vmf->pgoff << PAGE_SHIFT, PAGE_SIZE,
+								   READ);
 		ll_stats_ops_tally(ll_i2sbi(file_inode(vma->vm_file)),
-				   LPROC_LL_FAULT,
-				   ktime_us_delta(ktime_get(), kstart));
+									LPROC_LL_FAULT,
+									ktime_us_delta(ktime_get(), kstart));
 	}
 
 	CDEBUG(D_IOTRACE,
-	       "COMPLETED: "DFID": vma=%p start=%#lx end=%#lx vm_flags=%#lx idx=%lu\n",
+	       "COMPLETED: "DFID": vma=%p start=%#lx end=%#lx vm_flags=%#lx idx=%lu rc %d\n",
 	       PFID(&ll_i2info(file_inode(vma->vm_file))->lli_fid),
-	       vma, vma->vm_start, vma->vm_end, vma->vm_flags, vmf->pgoff);
+	       vma, vma->vm_start, vma->vm_end, vma->vm_flags, vmf->pgoff, result);
 
 	return result;
 }
@@ -488,10 +488,10 @@ static vm_fault_t ll_page_mkwrite(struct vm_area_struct *vma,
 	vm_fault_t result;
 
 	CDEBUG(D_MMAP|D_IOTRACE,
-	       DFID": vma=%p start=%#lx end=%#lx vm_flags=%#lx idx=%lu\n",
-	       PFID(&ll_i2info(file_inode(vma->vm_file))->lli_fid),
-	       vma, vma->vm_start, vma->vm_end, vma->vm_flags,
-	       vmf->page->index);
+	       "START file %s:"DFID", vma=%p start=%#lx end=%#lx vm_flags=%#lx idx=%lu\n",
+	       file_dentry(vma->vm_file)->d_name.name,
+	       PFID(&ll_i2info(file_inode(vma->vm_file))->lli_fid), vma,
+	       vma->vm_start, vma->vm_end, vma->vm_flags, vmf->pgoff);
 
 	result = pcc_page_mkwrite(vma, vmf, &cached);
 	if (cached)
@@ -535,19 +535,19 @@ static vm_fault_t ll_page_mkwrite(struct vm_area_struct *vma,
 out:
 	if (result == VM_FAULT_LOCKED) {
 		ll_rw_stats_tally(ll_i2sbi(file_inode(vma->vm_file)),
-				  current->pid, vma->vm_file->private_data,
-				  cl_offset(NULL, vmf->page->index), PAGE_SIZE,
-				  WRITE);
+								   current->pid, vma->vm_file->private_data,
+								   vmf->pgoff << PAGE_SHIFT, PAGE_SIZE,
+								   WRITE);
 		ll_stats_ops_tally(ll_i2sbi(file_inode(vma->vm_file)),
-				   LPROC_LL_MKWRITE,
-				   ktime_us_delta(ktime_get(), kstart));
+									LPROC_LL_MKWRITE,
+									ktime_us_delta(ktime_get(), kstart));
 	}
 
 	CDEBUG(D_IOTRACE,
-	       "COMPLETED: "DFID": vma=%p start=%#lx end=%#lx vm_flags=%#lx idx=%lu\n",
+	       "COMPLETED: "DFID": vma=%p start=%#lx end=%#lx vm_flags=%#lx idx=%lu rc %d\n",
 	       PFID(&ll_i2info(file_inode(vma->vm_file))->lli_fid),
 	       vma, vma->vm_start, vma->vm_end, vma->vm_flags,
-	       vmf->page->index);
+	       vmf->pgoff, result);
 	return result;
 }
 

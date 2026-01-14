@@ -4546,6 +4546,27 @@ AC_DEFUN([LC_HAVE_INODE_GET_CTIME], [
 ]) # LC_HAVE_INODE_GET_CTIME
 
 #
+# LC_HAVE_COPY_FOLIO_FROM_ITER_ATOMIC
+#
+# Kernel 6.6 commit v6.5-rc3-3-g1b0306981e0f
+# iov_iter: replace iov_iter_copy_from_user_atomic() with iterator-advancing variant
+#
+AC_DEFUN([LC_SRC_HAVE_COPY_FOLIO_FROM_ITER_ATOMIC], [
+	LB2_LINUX_TEST_SRC([copy_folio_from_iter_atomic], [
+		#include <linux/uio.h>
+	],[
+		copy_folio_from_iter_atomic(NULL, 0, 0, NULL);
+	])
+])
+AC_DEFUN([LC_HAVE_COPY_FOLIO_FROM_ITER_ATOMIC], [
+	LB2_MSG_LINUX_TEST_RESULT([if have copy_folio_from_iter_atomic],
+	[copy_folio_from_iter_atomic], [
+		AC_DEFINE(HAVE_COPY_FOLIO_FROM_ITER_ATOMIC, 1,
+			['copy_folio_from_iter_atomic' exists])
+	])
+]) # LC_HAVE_COPY_FOLIO_FROM_ITER_ATOMIC
+
+#
 # LC_HAVE_MMAP_WRITE_TRYLOCK
 #
 # linux kernel v6.5-rc4-110-gcf95e337cb63
@@ -4982,7 +5003,7 @@ AC_DEFUN([LC_HAVE_PAGEPRIVATE2], [
 ]) # LC_HAVE_PAGEPRIVATE2
 
 #
-# LC_STRUCT_LSM_CONTEXT
+# LC_STRUCT_LSM_CONTEXT_EARLY
 #
 # Linux commit v6.13-rc1-1-g6fba89813ccf
 #   lsm: ensure the correct LSM context releaser
@@ -5026,12 +5047,158 @@ AC_DEFUN([LC_SRC_HAVE_D_REVALIDATE_WITH_INODE_NAME], [
 	],[-Werror])
 ])
 AC_DEFUN([LC_HAVE_D_REVALIDATE_WITH_INODE_NAME], [
-	LB2_MSG_LINUX_TEST_RESULT([if PagePrivate2() is available],
+	LB2_MSG_LINUX_TEST_RESULT([if d_revalidate() takes inode, name],
 	[dentry_ops_d_revalidate_inode_name], [
 		AC_DEFINE(HAVE_D_REVALIDATE_WITH_INODE_NAME, 1,
 			[dentry operations d_revalidate() takes inode, name])
 	])
 ]) # LC_HAVE_D_REVALIDATE_WITH_INODE_NAME
+
+#
+# LC_HAVE_GRAB_CACHE_PAGE_WRITE_BEGIN
+#
+# Linux v6.14-rc1-45-ge33ce6bd4ea2
+#   mm: Remove grab_cache_page_write_begin()
+#
+AC_DEFUN([LC_SRC_HAVE_GRAB_CACHE_PAGE_WRITE_BEGIN], [
+	LB2_LINUX_TEST_SRC([grab_cache_page_write_begin], [
+		#include <linux/pagemap.h>
+	],[
+		struct address_space *mapping = NULL;
+		pgoff_t index = 0;
+
+		(void)grab_cache_page_write_begin(mapping, index
+#ifdef HAVE_GRAB_CACHE_PAGE_WRITE_BEGIN_WITH_FLAGS
+			, 0
+#endif
+			);
+	],[-Werror])
+])
+AC_DEFUN([LC_HAVE_GRAB_CACHE_PAGE_WRITE_BEGIN], [
+	LB2_MSG_LINUX_TEST_RESULT([if grab_cache_page_write_begin() is available],
+	[grab_cache_page_write_begin], [
+		AC_DEFINE(HAVE_GRAB_CACHE_PAGE_WRITE_BEGIN, 1,
+			[grab_cache_page_write_begin() is available])
+	], [
+		AC_DEFINE([grab_cache_page_write_begin(m, i)],
+			  [pagecache_get_page((m), (i), FGP_WRITEBEGIN, mapping_gfp_mask((m)))],
+			  [grab_cache_page_write_begin() is unavailable])
+	])
+]) # LC_HAVE_GRAB_CACHE_PAGE_WRITE_BEGIN
+
+#
+# LC_HAVE_WAIT_ON_PAGE_LOCKED
+#
+# Linux v6.14-rc1-61-gd96e2802a802
+#   mm: Remove wait_on_page_locked()
+#
+AC_DEFUN([LC_SRC_HAVE_WAIT_ON_PAGE_LOCKED], [
+	LB2_LINUX_TEST_SRC([wait_on_page_locked], [
+		#include <linux/pagemap.h>
+	],[
+		wait_on_page_locked((struct page *)NULL);
+	],[-Werror])
+])
+AC_DEFUN([LC_HAVE_WAIT_ON_PAGE_LOCKED], [
+	LB2_MSG_LINUX_TEST_RESULT([if wait_on_page_locked() is available],
+	[wait_on_page_locked], [
+		AC_DEFINE(HAVE_WAIT_ON_PAGE_LOCKED, 1,
+			[wait_on_page_locked() is available])
+	], [
+		AC_DEFINE([wait_on_page_locked(page)],
+			[folio_wait_locked(page_folio((page)))],
+			[wait_on_page_locked() is unavailable])
+	])
+]) # LC_HAVE_WAIT_ON_PAGE_LOCKED
+
+#
+# LC_HAVE_HRTIMER_SETUP
+#
+# Linux v6.12-rc1-119-g908a1d775422
+#   hrtimers: Introduce hrtimer_setup() to replace hrtimer_init()
+#
+AC_DEFUN([LC_SRC_HAVE_HRTIMER_SETUP], [
+	LB2_LINUX_TEST_SRC([hrtimer_setup], [
+		#include <linux/hrtimer.h>
+
+		static enum hrtimer_restart fn(struct hrtimer *timer)
+		{ return HRTIMER_NORESTART; }
+	],[
+		struct hrtimer *timer = NULL;
+
+		hrtimer_setup(timer, fn, CLOCK_MONOTONIC, HRTIMER_MODE_ABS);
+	],[-Werror])
+])
+AC_DEFUN([LC_HAVE_HRTIMER_SETUP], [
+	LB2_MSG_LINUX_TEST_RESULT([if hrtimer_setup() is available],
+	[hrtimer_setup], [
+		AC_DEFINE(HAVE_HRTIMER_SETUP, 1,
+			[hrtimer_setup() is available])
+	], [
+		AC_DEFINE([hrtimer_setup(t, f, c, m)],
+			  [(hrtimer_init((t), (c), (m)), (t)->function = (f))],
+			  [hrtimer_setup() is unavailable])
+	])
+]) # LC_HAVE_HRTIMER_SETUP
+
+#
+# LC_HAVE_IOPS_MKDIR_RETURNS_DENTRY
+#
+# Linux v6.14-rc4-9-g88d5baf69082
+#   Change inode_operations.mkdir to return struct dentry *
+#
+AC_DEFUN([LC_SRC_HAVE_IOPS_MKDIR_RETURNS_DENTRY], [
+	LB2_LINUX_TEST_SRC([iops_mkdir_returns_dentry], [
+		#include <linux/fs.h>
+	],[
+		struct inode_operations *iop = NULL;
+		struct dentry *din = NULL;
+		struct inode *parent = NULL;
+		umode_t mode = 0700;
+		struct dentry *dentry;
+
+		dentry = iop->mkdir(&nop_mnt_idmap, parent, din, mode);
+	],[-Werror])
+])
+AC_DEFUN([LC_HAVE_IOPS_MKDIR_RETURNS_DENTRY], [
+	LB2_MSG_LINUX_TEST_RESULT([if inode_operations.mkdir() returns dentry],
+	[iops_mkdir_returns_dentry], [
+		AC_DEFINE(HAVE_IOPS_MKDIR_RETURNS_DENTRY, 1,
+			[inode_operations.mkdir() returns dentry])
+	])
+]) # LC_HAVE_IOPS_MKDIR_RETURNS_DENTRY
+
+#
+# LC_HAVE_TRY_LOOKUP_NOPERM
+#
+# Linux commit v6.15-rc1-5-g06c567403ae5
+#   Use try_lookup_noperm() instead of d_hash_and_lookup() outside of VFS
+#
+AC_DEFUN([LC_SRC_HAVE_TRY_LOOKUP_NOPERM], [
+	LB2_LINUX_TEST_SRC([try_lookup_noperm], [
+		#include <linux/namei.h>
+	],[
+		const char *up = "..";
+		struct dentry *from = NULL;
+		struct dentry *dentry = try_lookup_noperm(&QSTR(up), from);
+
+		(void) dentry;
+	],[-Werror])
+])
+AC_DEFUN([LC_HAVE_TRY_LOOKUP_NOPERM], [
+	LB2_MSG_LINUX_TEST_RESULT([if try_lookup_noperm() is available],
+	[try_lookup_noperm], [
+		AC_DEFINE(HAVE_TRY_LOOKUP_NOPERM, 1,
+			[try_lookup_noperm() is available])
+	], [
+		AC_DEFINE([try_lookup_noperm(name, dentry)],
+			  [d_hash_and_lookup((dentry), (name))],
+			  [try_lookup_noperm() was d_hash_and_lookup()])
+		AC_DEFINE([lookup_noperm(qstr, dentry)],
+			  [lookup_one_len((qstr)->name, (dentry), (qstr)->len)],
+			  [lookup_noperm() was lookup_one_len()])
+	])
+]) # LC_HAVE_TRY_LOOKUP_NOPERM
 
 #
 # LC_PROG_LINUX
@@ -5304,6 +5471,7 @@ AC_DEFUN([LC_PROG_LINUX_SRC], [
 	# 6.6
 	LC_SRC_HAVE_FLUSH___WORKQUEUE
 	LC_SRC_HAVE_INODE_GET_CTIME
+	LC_SRC_HAVE_COPY_FOLIO_FROM_ITER_ATOMIC
 	LC_SRC_HAVE_MMAP_WRITE_TRYLOCK
 	LC_SRC_HAVE_GENERIC_FILEATTR_HAS_MASK_ARG
 
@@ -5321,6 +5489,9 @@ AC_DEFUN([LC_PROG_LINUX_SRC], [
 	# 6.9
 	LC_SRC_HAVE_STRUCT_FILE_LOCK_CORE
 
+	# 6.10
+	LC_SRC_HAVE_CSUM_TYPE_BLK_INTEGRITY
+
 	# 6.12
 	LC_SRC_HAVE_LINUX_UNALIGNED_HEADER
 	LC_SRC_HAVE_WRITE_BEGIN_FOLIO
@@ -5335,6 +5506,15 @@ AC_DEFUN([LC_PROG_LINUX_SRC], [
 
 	# 6.14
 	LC_SRC_HAVE_D_REVALIDATE_WITH_INODE_NAME
+
+	# 6.15
+	LC_SRC_HAVE_GRAB_CACHE_PAGE_WRITE_BEGIN
+	LC_SRC_HAVE_WAIT_ON_PAGE_LOCKED
+	LC_SRC_HAVE_HRTIMER_SETUP
+	LC_SRC_HAVE_IOPS_MKDIR_RETURNS_DENTRY
+
+	# 6.16
+	LC_SRC_HAVE_TRY_LOOKUP_NOPERM
 
 	# kernel patch to extend integrity interface
 	LC_SRC_BIO_INTEGRITY_PREP_FN
@@ -5623,6 +5803,7 @@ AC_DEFUN([LC_PROG_LINUX_RESULTS], [
 	# 6.6
 	LC_HAVE_FLUSH___WORKQUEUE
 	LC_HAVE_INODE_GET_CTIME
+	LC_HAVE_COPY_FOLIO_FROM_ITER_ATOMIC
 	LC_HAVE_MMAP_WRITE_TRYLOCK
 	LC_HAVE_GENERIC_FILEATTR_HAS_MASK_ARG
 
@@ -5654,6 +5835,15 @@ AC_DEFUN([LC_PROG_LINUX_RESULTS], [
 
 	# 6.14
 	LC_HAVE_D_REVALIDATE_WITH_INODE_NAME
+
+	# 6.15
+	LC_HAVE_GRAB_CACHE_PAGE_WRITE_BEGIN
+	LC_HAVE_WAIT_ON_PAGE_LOCKED
+	LC_HAVE_HRTIMER_SETUP
+	LC_HAVE_IOPS_MKDIR_RETURNS_DENTRY
+
+	# 6.16
+	LC_HAVE_TRY_LOOKUP_NOPERM
 
 	# kernel patch to extend integrity interface
 	LC_BIO_INTEGRITY_PREP_FN

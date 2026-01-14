@@ -240,7 +240,8 @@ static int ll_read_ahead_page(const struct lu_env *env, struct cl_io *io,
 		GOTO(out, rc = -EBUSY);
 	}
 
-	cp = cl_page_find(env, clob, vmpage->index, vmpage, CPT_CACHEABLE);
+	cp = cl_page_find(env, clob, folio_index_page(vmpage), vmpage,
+			  CPT_CACHEABLE);
 	if (IS_ERR(cp)) {
 		which = RA_STAT_FAILED_GRAB_PAGE;
 		msg   = "cl_page_find failed";
@@ -1470,18 +1471,18 @@ int ll_writepage(struct page *vmpage, struct writeback_control *wbc)
 {
 	struct inode	       *inode = vmpage->mapping->host;
 	struct ll_inode_info   *lli   = ll_i2info(inode);
-        struct lu_env          *env;
-        struct cl_io           *io;
-        struct cl_page         *page;
-        struct cl_object       *clob;
+	struct lu_env          *env;
+	struct cl_io           *io;
+	struct cl_page         *page;
+	struct cl_object       *clob;
 	bool redirtied = false;
 	bool unlocked = false;
-        int result;
+	int result;
 	__u16 refcheck;
-        ENTRY;
+	ENTRY;
 
-        LASSERT(PageLocked(vmpage));
-        LASSERT(!PageWriteback(vmpage));
+	LASSERT(PageLocked(vmpage));
+	LASSERT(!PageWriteback(vmpage));
 
 	LASSERT(ll_i2dtexp(inode) != NULL);
 
@@ -1493,12 +1494,12 @@ int ll_writepage(struct page *vmpage, struct writeback_control *wbc)
         LASSERT(clob != NULL);
 
 	io = vvp_env_thread_io(env);
-        io->ci_obj = clob;
+    io->ci_obj = clob;
 	io->ci_ignore_layout = 1;
-        result = cl_io_init(env, io, CIT_MISC, clob);
-        if (result == 0) {
-                page = cl_page_find(env, clob, vmpage->index,
-                                    vmpage, CPT_CACHEABLE);
+	result = cl_io_init(env, io, CIT_MISC, clob);
+	if (result == 0) {
+		page = cl_page_find(env, clob, folio_index_page(vmpage),
+				    		vmpage, CPT_CACHEABLE);
 		if (!IS_ERR(page)) {
 			lu_ref_add(&page->cp_reference, "writepage",
 				   current);
@@ -1528,7 +1529,7 @@ int ll_writepage(struct page *vmpage, struct writeback_control *wbc)
         cl_io_fini(env, io);
 
 	if (redirtied && wbc->sync_mode == WB_SYNC_ALL) {
-		loff_t offset = cl_offset(clob, vmpage->index);
+		loff_t offset = cl_offset(clob, folio_index_page(vmpage));
 
 		/* Flush page failed because the extent is being written out.
 		 * Wait for the write of extent to be finished to avoid
@@ -1942,7 +1943,8 @@ int ll_readpage(struct file *file, struct page *vmpage)
 		struct ll_readahead_state *ras = &fd->fd_ras;
 		struct lu_env  *local_env = NULL;
 
-		CDEBUG(D_VFSTRACE, "fast read pgno: %ld\n", vmpage->index);
+		CDEBUG(D_VFSTRACE, "fast read pgno: %ld\n",
+		       folio_index_page(vmpage));
 
 		result = -ENODATA;
 
@@ -1951,6 +1953,8 @@ int ll_readpage(struct file *file, struct page *vmpage)
 		page = cl_vmpage_page(vmpage, clob);
 		if (page == NULL) {
 			unlock_page(vmpage);
+			CDEBUG(D_READA, "fast read: failed to find page %ld\n",
+			       folio_index_page(vmpage));
 			ll_ra_stats_inc_sbi(sbi, RA_STAT_FAILED_FAST_READ);
 			RETURN(result);
 		}
@@ -2024,12 +2028,18 @@ int ll_readpage(struct file *file, struct page *vmpage)
 		 * This should never occur except in kernels with the bug
 		 * mentioned above.
 		 */
-		if (vmpage->index >= lcc->lcc_end_index) {
-			result = cl_io_read_ahead(env, io, vmpage->index, &ra);
-			if (result < 0 || vmpage->index > ra.cra_end_idx) {
-				cl_read_ahead_release(env, &ra);
-				unlock_page(vmpage);
-				RETURN(AOP_TRUNCATED_PAGE);
+		if (folio_index_page(vmpage) >= lcc->lcc_end_index) {
+			CDEBUG(D_VFSTRACE,
+			       "pgno:%ld, beyond read end_index:%ld\n",
+			       folio_index_page(vmpage), lcc->lcc_end_index);
+			result = cl_io_read_ahead(env, io,
+									  folio_index_page(vmpage),
+									  &ra);
+			if (result < 0 ||
+				folio_index_page(vmpage) > ra.cra_end_idx) {	
+					cl_read_ahead_release(env, &ra);
+					unlock_page(vmpage);
+					RETURN(AOP_TRUNCATED_PAGE);
 			}
 		}
 	}
@@ -2051,7 +2061,8 @@ int ll_readpage(struct file *file, struct page *vmpage)
 	}
 
 	LASSERT(io->ci_state == CIS_IO_GOING);
-	page = cl_page_find(env, clob, vmpage->index, vmpage, CPT_CACHEABLE);
+	page = cl_page_find(env, clob, folio_index_page(vmpage), vmpage,
+			    CPT_CACHEABLE);
 	if (!IS_ERR(page)) {
 		LASSERT(page->cp_type == CPT_CACHEABLE);
 		if (likely(!PageUptodate(vmpage))) {
@@ -2067,6 +2078,8 @@ int ll_readpage(struct file *file, struct page *vmpage)
 	} else {
 		unlock_page(vmpage);
 		result = PTR_ERR(page);
+		CDEBUG(D_CACHE, "failed to alloc page@%pK index%ld: rc = %d\n",
+		       vmpage, folio_index_page(vmpage), result);
 	}
 
 out:

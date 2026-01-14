@@ -1391,16 +1391,17 @@ static int osc_checksum_bulk_rw(const char *obd_name,
  * This overlay function is necessary to be able to provide our own bounce page.
  */
 static struct page *osc_encrypt_pagecache_blocks(struct page *srcpage,
-						 struct page *dstpage,
-						 unsigned int len,
-						 unsigned int offs,
-						 gfp_t gfp_flags)
+						 						 struct page *dstpage,
+												 unsigned int len,
+												 unsigned int offs,
+												 gfp_t gfp_flags)
 
 {
 	const struct inode *inode = srcpage->mapping->host;
 	const unsigned int blockbits = inode->i_blkbits;
 	const unsigned int blocksize = 1 << blockbits;
-	u64 lblk_num = ((u64)srcpage->index << (PAGE_SHIFT - blockbits)) +
+	pgoff_t index = folio_index_page(srcpage);
+	u64 lblk_num = ((u64)index << (PAGE_SHIFT - blockbits)) +
 		(offs >> blockbits);
 	unsigned int i;
 	int err;
@@ -1815,24 +1816,25 @@ no_bulk:
         struct brw_page *pg = pga[i];
 		int poff = pg->bp_off & ~PAGE_MASK;
 
-                LASSERT(pg->bp_count > 0);
-                /* make sure there is no gap in the middle of page array */
+		LASSERT(pg->bp_count > 0);
+		/* make sure there is no gap in the middle of page array */
 		LASSERTF(page_count == 1 ||
 				 (ergo(i == 0, poff + pg->bp_count == PAGE_SIZE) &&
-				  ergo(i > 0 && i < page_count - 1,
-			       poff == 0 && pg->bp_count == PAGE_SIZE)   &&
-				  ergo(i == page_count - 1, poff == 0)),
-				  "i: %d/%d pg: %p off: %llu, count: %u\n",
+				 ergo(i > 0 && i < page_count - 1,
+			     poff == 0 && pg->bp_count == PAGE_SIZE)   &&
+			  	 ergo(i == page_count - 1, poff == 0)),
+				 "i: %d/%d pg: %p off: %llu, count: %u\n",
 				 i, page_count, pg, pg->bp_off, pg->bp_count);
         LASSERTF(i == 0 || pg->bp_off > pg_prev->bp_off,
 				 "i %d p_c %u pg %p [pri %lu ind %lu] off %llu"
 				 " prev_pg %p [pri %lu ind %lu] off %llu\n",
-                i, page_count,
-				pg->bp_page, page_private(pg->bp_page), pg->bp_page->index, pg->bp_off,
-				pg_prev->bp_page, page_private(pg_prev->bp_page),
-				pg_prev->bp_page->index, pg_prev->bp_off);
+				 i, page_count,
+				 pg->bp_page, page_private(pg->bp_page),
+				 folio_index_page(pg->bp_page), pg->bp_off,
+				 pg_prev->bp_page, page_private(pg_prev->bp_page),
+				 folio_index_page(pg_prev->bp_page), pg_prev->bp_off);
         LASSERT((pga[0]->bp_flag & OBD_BRW_SRVLOCK) ==
-                (pg->bp_flag & OBD_BRW_SRVLOCK));
+            (pg->bp_flag & OBD_BRW_SRVLOCK));
 		if (short_io_size != 0 && opc == OST_WRITE) {
 			unsigned char *ptr = kmap_atomic(pg->bp_page);
 
@@ -1840,10 +1842,10 @@ no_bulk:
 			memcpy(short_io_buf + requested_nob,
 			       ptr + poff,
 			       pg->bp_count);
-			kunmap_atomic(ptr);
+			kunmap_local(ptr);
 		} else if (short_io_size == 0) {
-			desc->bd_frag_ops->add_kiov_frag(desc, pg->bp_page, poff,
-							 				 pg->bp_count);
+			desc->bd_frag_ops->add_kiov_frag(desc, pg->bp_page,
+											 poff, pg->bp_count);
 		}
 		requested_nob += pg->bp_count;
 
