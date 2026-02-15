@@ -792,8 +792,13 @@ static int ll_tiny_write_begin(struct page *vmpage, struct address_space *mappin
  * to hold data for buffered i/o on the 'write' path.
  * Called by generic_perform_write() to allocate one page [or one folio]
  */
-static int ll_write_begin(struct file *file, struct address_space *mapping,
-			  loff_t pos, unsigned int len,
+static int ll_write_begin(
+#ifdef HAVE_WRITE_BEGIN_KIOCB
+			  const struct kiocb *kiocb,
+#else
+			  struct file *file,
+#endif
+			  struct address_space *mapping, loff_t pos, unsigned int len,
 #ifdef HAVE_GRAB_CACHE_PAGE_WRITE_BEGIN_WITH_FLAGS
 			  unsigned int flags,
 #endif
@@ -804,6 +809,9 @@ static int ll_write_begin(struct file *file, struct address_space *mapping,
 	struct vvp_io *vio;
 	struct cl_io   *io = NULL;
 	struct cl_page *page = NULL;
+#ifdef HAVE_WRITE_BEGIN_KIOCB
+	struct file *file = kiocb->ki_filp;
+#endif
 	struct inode *inode = file_inode(file);
 	struct cl_object *clob = ll_i2info(mapping->host)->lli_clob;
 	pgoff_t index = pos >> PAGE_SHIFT;
@@ -987,12 +995,20 @@ out:
 	RETURN(rc);
 }
 
-static int ll_write_end(struct file *file, struct address_space *mapping,
-			loff_t pos, unsigned len, unsigned copied,
+static int ll_write_end(
+#ifdef HAVE_WRITE_BEGIN_KIOCB
+			const struct kiocb *kiocb,
+#else
+			struct file *file,
+#endif
+			struct address_space *mapping, loff_t pos, unsigned len, unsigned copied,
 			struct wbe_folio *folio, void *fsdata)
 {
 	struct ll_cl_context *lcc = fsdata;
 	const struct lu_env *env;
+#ifdef HAVE_WRITE_BEGIN_KIOCB
+	struct file *file = kiocb->ki_filp;
+#endif
 	struct cl_io *io;
 	struct vvp_io *vio;
 	struct cl_page *cl_page;

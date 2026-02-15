@@ -83,8 +83,8 @@ static int ksocknal_ip2index(struct sockaddr *addr, struct lnet_ni *ni)
 		return ret;
 
 	rcu_read_lock();
-	for_each_netdev(ni->ni_net_ns, dev) {
-		int flags = dev_get_flags(dev);
+	for_each_netdev_rcu(ni->ni_net_ns, dev) {
+		int flags = netif_get_flags(dev);
 		struct in_device *in_dev;
 
 		if (flags & IFF_LOOPBACK) /* skip the loopback IF */
