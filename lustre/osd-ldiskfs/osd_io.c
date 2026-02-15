@@ -804,13 +804,16 @@ static struct page *osd_get_page(const struct lu_env *env, struct dt_object *dt,
  * \retval 0		always
  */
 static int osd_bufs_put(const struct lu_env *env, struct dt_object *dt,
-			struct niobuf_local *lnb, int npages)
+						struct niobuf_local *lnb, int npages)
 {
+	struct osd_device *osd = osd_obj2dev(osd_dt_obj(dt));
 	struct osd_thread_info *oti = osd_oti_get(env);
+	struct osd_iobuf *iobuf = &oti->oti_iobuf;
 	struct folio_batch fbatch;
 	int i;
 
-	ll_folio_batch_init(&fbatch, 0);
+	osd_brw_stats_update(osd, iobuf);
+	ll_folio_batch_init(&fbatch);
 
 	for (i = 0; i < npages; i++) {
 		struct page *page = lnb[i].lnb_page;
@@ -823,6 +826,7 @@ static int osd_bufs_put(const struct lu_env *env, struct dt_object *dt,
 		 */
 		if (PagePrivate2(page)) {
 			oti->oti_dio_pages_used--;
+			lnb[i].lnb_dio = 0;
 		} else {
 			if (lnb[i].lnb_locked)
 				unlock_page(page);

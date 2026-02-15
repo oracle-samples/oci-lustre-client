@@ -490,7 +490,7 @@ static void discard_cl_pages(const struct lu_env *env, struct cl_io *io,
 	struct folio_batch *fbatch = &osc_env_info(env)->oti_fbatch;
 	int i;
 
-	ll_folio_batch_init(fbatch, 0);
+	ll_folio_batch_init(fbatch);
 	for (i = 0; i < max_index; i++) {
 		struct cl_page *page = pvec[i];
 
@@ -886,23 +886,19 @@ void osc_lru_unreserve(struct client_obd *cli, unsigned long npages)
  * In practice this can work pretty good because the pages in the same RPC
  * are likely from the same page zone.
  */
-
 static inline void unstable_page_accounting(struct ptlrpc_bulk_desc *desc,
 											int factor)
 {
-	int page_count;
 	void *zone = NULL;
 	int count = 0;
 	int i;
 
 	ENTRY;
 
-	page_count = desc->bd_iov_count;
-
 	CDEBUG(D_PAGE, "%s %d unstable pages\n",
-	       factor == 1 ? "adding" : "removing", page_count);
+	       factor == 1 ? "adding" : "removing", desc->bd_iov_count);
 
-	for (i = 0; i < page_count; i++) {
+	for (i = 0; i < desc->bd_iov_count; i++) {
 		void *pz = page_zone(desc->bd_vec[i].bv_page);
 
 		if (likely(pz == zone)) {
@@ -973,6 +969,7 @@ static inline void unstable_page_accounting(struct ptlrpc_bulk_desc *desc,
 
 	EXIT;
 }
+#endif
 
 static inline void add_unstable_pages(struct ptlrpc_bulk_desc *desc)
 {

@@ -2002,7 +2002,7 @@ int ll_readpage(struct file *file, struct page *vmpage)
 
 	if (lcc && lcc->lcc_type != LCC_MMAP) {
 		CDEBUG(D_VFSTRACE, "pgno:%ld, beyond read end_index:%ld\n",
-		       vmpage->index, lcc->lcc_end_index);
+		       folio_index_page(vmpage), lcc->lcc_end_index);
 
 		/*
 		 * This handles a kernel bug introduced in kernel 5.12:
