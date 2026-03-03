@@ -1441,15 +1441,16 @@ int ll_allocate_dio_buffer(struct ll_dio_pages *pvec, size_t io_size)
 	if (pvec->ldp_pages == NULL)
 		GOTO(out, result = -ENOMEM);
 
+	if (CFS_FAIL_CHECK(OBD_FAIL_LLITE_DIO_BUFFER_ALLOC))
+		GOTO(out, result = -ENOMEM);
+
 	result = obd_pool_get_pages_array(pvec->ldp_pages, pvec->ldp_count);
 	if (result)
 		GOTO(out, result);
 
 out:
-	if (result) {
-		if (pvec->ldp_pages)
-			ll_free_dio_buffer(pvec);
-	}
+	if (result)
+		ll_free_dio_buffer(pvec);
 
 	if (result == 0)
 		result = pvec->ldp_count;
@@ -1460,6 +1461,9 @@ EXPORT_SYMBOL(ll_allocate_dio_buffer);
 
 void ll_free_dio_buffer(struct ll_dio_pages *pvec)
 {
+	if (!pvec->ldp_pages)
+		return;
+
 	obd_pool_put_pages_array(pvec->ldp_pages, pvec->ldp_count);
 
 #ifdef HAVE_DIO_ITER
@@ -1467,6 +1471,7 @@ void ll_free_dio_buffer(struct ll_dio_pages *pvec)
 #else
 	OBD_FREE_PTR_ARRAY_LARGE(pvec->ldp_pages, pvec->ldp_count);
 #endif
+	pvec->ldp_pages = NULL;
 }
 EXPORT_SYMBOL(ll_free_dio_buffer);
 

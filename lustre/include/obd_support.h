@@ -616,6 +616,7 @@ extern char obd_jobid_var[];
 #define OBD_FAIL_LOV_COMP_PATTERN		    0x1427
 #define OBD_FAIL_LLITE_READ_PAUSE		    0x1431
 #define OBD_FAIL_LLITE_DIO_COPY_ERR		    0x1437
+#define OBD_FAIL_LLITE_DIO_BUFFER_ALLOC		    0x1438
 
 #define OBD_FAIL_FID_INDIR			0x1501
 #define OBD_FAIL_FID_INLMA			0x1502
