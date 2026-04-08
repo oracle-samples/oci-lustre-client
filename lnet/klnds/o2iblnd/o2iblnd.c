@@ -2859,11 +2859,12 @@ kiblnd_dev_failover(struct kib_dev *dev, struct net *ns)
 		dev->ibd_failed_failover = 0;
 
 		if (set_fatal) {
-			rcu_read_lock();
-			netdev = dev_get_by_name_rcu(ns, dev->ibd_ifname);
-			if (netdev && (kiblnd_get_link_status(netdev) == 1))
-				kiblnd_set_ni_fatal_on(dev->ibd_hdev, 0);
-			rcu_read_unlock();
+			netdev = dev_get_by_name(ns, dev->ibd_ifname);
+			if (netdev) {
+				if (lnet_get_link_status(netdev) == 1)
+					kiblnd_set_ni_fatal_on(dev->ibd_hdev, 0);
+				dev_put(netdev);
+			}
 		}
 	}
 
