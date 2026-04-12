@@ -166,33 +166,56 @@ struct import_state_hist {
 	time64_t		ish_time;
 };
 
-/**
- * Defintion of PortalRPC import structure.
+/* Flag bits for import flags */
+enum import_flags {
+	IMPF_INVALID,		/* evicted */
+	IMPF_DEACTIVE,		/* administratively disabled */
+	IMPF_REPLAYABLE,		/* try to recover the import */
+	IMPF_DLM_FAKE,		/* don't run recovery (timeout instead) */
+	IMPF_SERVER_TIMEOUT,	/* use 1/2 timeout on MDS' OSCs */
+	IMPF_DELAYED_RECOVERY,	/* VBR: imp in delayed recovery */
+	IMPF_VBR_FAILED,		/* recovery by versions was failed */
+	IMPF_FORCE_VERIFY,	/* force an immidiate ping */
+	IMPF_FORCE_NEXT_VERIFY,	/* force a scheduled ping */
+	IMPF_PINGABLE,		/* pingable */
+	IMPF_RESEND_REPLAY,	/* resend for replay */
+	IMPF_NO_PINGER_RECOVER,	/* disable normal recovery, for test only. */
+	IMPF_FORCE_RECONNECT,	/* import must be reconnected instead of
+				 * choose new connection
+				 */
+	IMPF_CONNECT_TRIED,	/* import has tried to connect with server */
+	IMPF_CONNECTED,		/* connected but not FULL yet */
+	IMPF_GRANT_SHRINK_DISABLED, /* grant shrink disabled */
+	IMPF_WAS_IDLE,		/* to supress LCONSOLE() at conn.restore */
+	IMPF_NO_CACHED_DATA,	/* no data from the server has been cached
+				 * on the client.
+				 */
+	IMPF_NUM_FLAGS
+};
+
+/* Defintion of PortalRPC import structure.
  * Imports are representing client-side view to remote target.
  */
 struct obd_import {
 	/** Reference counter */
-	refcount_t		  imp_refcount;
+	refcount_t				  imp_refcount;
 	struct lustre_handle      imp_dlm_handle; /* client's ldlm export */
 	/** Currently active connection */
-	struct ptlrpc_connection *imp_connection;
-        /** PortalRPC client structure for this import */
-        struct ptlrpc_client     *imp_client;
+	struct ptlrpc_connection  *imp_connection;
+	/** PortalRPC client structure for this import */
+	struct ptlrpc_client      *imp_client;
 	/** List element for linking into pinger chain */
-	struct list_head	  imp_pinger_chain;
+	struct list_head	  	  imp_pinger_chain;
 	/** work struct for destruction of import */
-	struct work_struct	  imp_zombie_work;
-
-        /**
-         * Lists of requests that are retained for replay, waiting for a reply,
-         * or waiting for recovery to complete, respectively.
-         * @{
-         */
-	struct list_head	imp_replay_list;
-	struct list_head	imp_sending_list;
-	struct list_head	imp_delayed_list;
-        /** @} */
-
+	struct work_struct	  	  imp_zombie_work;
+	/**
+	 * Lists of requests that are retained for replay, waiting for a reply,
+	 * or waiting for recovery to complete, respectively.
+	 * @{
+	 */
+	struct list_head		  imp_replay_list;
+	struct list_head		  imp_sending_list;
+	struct list_head		  imp_delayed_list;
 	/**
 	 * List of requests that are retained for committed open replay. Once
 	 * open is committed, open replay request will be moved from the
@@ -200,33 +223,27 @@ struct obd_import {
 	 * The imp_replay_cursor is for accelerating searching during replay.
 	 * @{
 	 */
-	struct list_head	imp_committed_list;
-	struct list_head	*imp_replay_cursor;
+	struct list_head		  imp_committed_list;
+	struct list_head		  *imp_replay_cursor;
 	/** @} */
 
 	/** List of not replied requests */
-	struct list_head	imp_unreplied_list;
+	struct list_head		  imp_unreplied_list;
 	/** XID below which we know all replies have been received */
-	__u64			imp_known_replied_xid;
+	__u64					  imp_known_replied_xid;
 	/** highest XID for which we have received a reply */
-	__u64			imp_highest_replied_xid;
+	__u64					  imp_highest_replied_xid;
 
 	/** obd device for this import */
-	struct obd_device	*imp_obd;
-
-        /**
-         * some seciruty-related fields
-         * @{
-         */
-	struct ptlrpc_sec        *imp_sec;
-	rwlock_t		  imp_sec_lock;
-	time64_t		imp_sec_expire;
-	pid_t			  imp_sec_refpid;
-        /** @} */
+	struct obd_device		  *imp_obd;
+	/* some seciruty-related fields */
+	struct ptlrpc_sec		  *imp_sec;
+	rwlock_t		  		  imp_sec_lock;
+	time64_t				  imp_sec_expire;
+	pid_t			  		  imp_sec_refpid;
 
 	/** Wait queue for those who need to wait for recovery completion */
 	wait_queue_head_t         imp_recovery_waitq;
-
 	/** Number of requests allocated */
 	atomic_t                  imp_reqs;
 	/** Number of requests currently in-flight */
@@ -236,120 +253,100 @@ struct obd_import {
 	/** Number of replay requests inflight */
 	atomic_t                  imp_replay_inflight;
 	/** In-flight replays rate control */
-	wait_queue_head_t	  imp_replay_waitq;
-
+	wait_queue_head_t	  	  imp_replay_waitq;
 	/** Number of currently happening import invalidations */
 	atomic_t                  imp_inval_count;
 	/** Numbner of request timeouts */
 	atomic_t                  imp_timeouts;
 	/** Current import state */
-        enum lustre_imp_state     imp_state;
+    enum lustre_imp_state	  imp_state;
 	/** Last replay state */
 	enum lustre_imp_state     imp_replay_state;
-        /** History of import states */
-        struct import_state_hist  imp_state_hist[IMP_STATE_HIST_LEN];
-        int                       imp_state_hist_idx;
-        /** Current import generation. Incremented on every reconnect */
-        int                       imp_generation;
+	/** History of import states */
+	struct import_state_hist  imp_state_hist[IMP_STATE_HIST_LEN];
+	int						  imp_state_hist_idx;
+	/** Current import generation. Incremented on every reconnect */
+	int						  imp_generation;
 	/** Idle connection initiated at this generation */
-	int			  imp_initiated_at;
-        /** Incremented every time we send reconnection request */
-        __u32                     imp_conn_cnt;
-       /**
-        * \see ptlrpc_free_committed remembers imp_generation value here
-        * after a check to save on unnecessary replay list iterations
-        */
-        int                       imp_last_generation_checked;
-        /** Last tranno we replayed */
-        __u64                     imp_last_replay_transno;
-        /** Last transno committed on remote side */
-        __u64                     imp_peer_committed_transno;
-        /**
-         * \see ptlrpc_free_committed remembers last_transno since its last
-         * check here and if last_transno did not change since last run of
-         * ptlrpc_free_committed and import generation is the same, we can
-         * skip looking for requests to remove from replay list as optimisation
-         */
-        __u64                     imp_last_transno_checked;
-        /**
-         * Remote export handle. This is how remote side knows what export
-         * we are talking to. Filled from response to connect request
-         */
-        struct lustre_handle      imp_remote_handle;
-        /** When to perform next ping. time in jiffies. */
-	time64_t		imp_next_ping;
+	int						  imp_initiated_at;
+	/** Incremented every time we send reconnection request */
+	__u32					  imp_conn_cnt;
+	/**
+	* \see ptlrpc_free_committed remembers imp_generation value here
+	* after a check to save on unnecessary replay list iterations
+	*/
+	int						  imp_last_generation_checked;
+	/** Last tranno we replayed */
+	__u64					  imp_last_replay_transno;
+	/** Last transno committed on remote side */
+	__u64					  imp_peer_committed_transno;
+	/**
+	 * \see ptlrpc_free_committed remembers last_transno since its last
+	 * check here and if last_transno did not change since last run of
+	 * ptlrpc_free_committed and import generation is the same, we can
+	 * skip looking for requests to remove from replay list as optimisation
+	 */
+	__u64					  imp_last_transno_checked;
+	/**
+	 * Remote export handle. This is how remote side knows what export
+	 * we are talking to. Filled from response to connect request
+	 */
+	struct lustre_handle	  imp_remote_handle;
+	/** When to perform next ping. time in jiffies. */
+	time64_t				  imp_next_ping;
 	/** When we last successfully connected. time in 64bit jiffies */
-	time64_t		imp_last_success_conn;
-
-        /** List of all possible connection for import. */
-	struct list_head	imp_conn_list;
-        /**
-         * Current connection. \a imp_connection is imp_conn_current->oic_conn
-         */
-        struct obd_import_conn   *imp_conn_current;
-
-        /** Protects flags, level, generation, conn_cnt, *_list */
-	spinlock_t		  imp_lock;
-
+	time64_t				  imp_last_success_conn;
+    /** List of all possible connection for import. */
+	struct list_head		  imp_conn_list;
+	/**
+	 * Current connection. \a imp_connection is imp_conn_current->oic_conn
+	 */
+	struct obd_import_conn	  *imp_conn_current;
+    /** Protects flags, level, generation, conn_cnt, *_list */
+	spinlock_t				  imp_lock;
 	/**
 	 * A "sentinel" value used to check if there are other threads
 	 * waiting on the imp_lock.
 	 */
-	atomic_t                  imp_waiting;
-
+	atomic_t				  imp_waiting;
 	/* flags */
-	unsigned long		  imp_invalid:1,    /* evicted */
-				  /* administratively disabled */
-				  imp_deactive:1,
-				  /* try to recover the import */
-				  imp_replayable:1,
-				  /* don't run recovery (timeout instead) */
-				  imp_dlm_fake:1,
-				  /* use 1/2 timeout on MDS' OSCs */
-				  imp_server_timeout:1,
-				  /* VBR: imp in delayed recovery */
-				  imp_delayed_recovery:1,
-				  /* recovery by versions was failed */
-				  imp_vbr_failed:1,
-				  /* force an immidiate ping */
-				  imp_force_verify:1,
-				  /* force a scheduled ping */
-				  imp_force_next_verify:1,
-				  /* pingable */
-				  imp_pingable:1,
-				  /* resend for replay */
-				  imp_resend_replay:1,
-				  /* disable normal recovery, for test only. */
-				  imp_no_pinger_recover:1,
-				  /* import must be reconnected instead of
-				   * chouse new connection */
-				  imp_force_reconnect:1,
-				  /* import has tried to connect with server */
-				  imp_connect_tried:1,
-				  /* connected but not FULL yet */
-				  imp_connected:1,
-				  /* grant shrink disabled */
-				  imp_grant_shrink_disabled:1,
-				  /* to supress LCONSOLE() at conn.restore */
-				  imp_was_idle:1,
-				  imp_no_cached_data:1;
-	u32			  imp_connect_op;
-	u32			  imp_idle_timeout;
-	u32			  imp_idle_debug;
+	unsigned long			  /* don't run recovery (timeout instead) */
+							  imp_dlm_fake:1,
+							  /* use 1/2 timeout on MDS' OSCs */
+							  imp_server_timeout:1,
+							  /* force an immidiate ping */
+							  imp_force_verify:1,
+							  /* force a scheduled ping */
+							  imp_force_next_verify:1,
+							  /* import must be reconnected instead of
+							   * chouse new connection
+							   */
+							  imp_force_reconnect:1,
+							  /* connected but not FULL yet */
+							  imp_connected:1,
+							  /* grant shrink disabled */
+							  imp_grant_shrink_disabled:1,
+							  /* to supress LCONSOLE() at conn.restore */
+							  imp_was_idle:1,
+							  imp_no_cached_data:1;
+	DECLARE_BITMAP(imp_flags, IMPF_NUM_FLAGS);
+	u32			  			  imp_connect_op;
+	u32						  imp_idle_timeout;
+	u32						  imp_idle_debug;
 	struct obd_connect_data	  imp_connect_data;
-	__u64			  imp_connect_flags_orig;
-	__u64			  imp_connect_flags2_orig;
-	int			  imp_connect_error;
+	__u64			  		  imp_connect_flags_orig;
+	__u64			  		  imp_connect_flags2_orig;
+	int			  			  imp_connect_error;
 
-	enum lustre_msg_magic	imp_msg_magic;
-				/* adjusted based on server capability */
-	enum lustre_msghdr	imp_msghdr_flags;
+	enum lustre_msg_magic	  imp_msg_magic;
+							  /* adjusted based on server capability */
+	enum lustre_msghdr	      imp_msghdr_flags;
 
-				/* adaptive timeout data */
-	struct imp_at		imp_at;
-	time64_t		imp_last_reply_time;	/* for health check */
-	time64_t		imp_setup_time;
-	__u32			imp_conn_restricted_net;
+							  /* adaptive timeout data */
+	struct imp_at			  imp_at;
+	time64_t				  imp_last_reply_time;	/* for health check */
+	time64_t				  imp_setup_time;
+	__u32					  imp_conn_restricted_net;
 };
 
 /* import.c : adaptive timeout handling.

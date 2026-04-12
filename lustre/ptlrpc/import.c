@@ -157,7 +157,8 @@ static void ptlrpc_deactivate_import_nolock(struct obd_import *imp)
 
 	assert_spin_locked(&imp->imp_lock);
 	CDEBUG(D_HA, "setting import %s INVALID\n", obd2cli_tgt(imp->imp_obd));
-	imp->imp_invalid = 1;
+	smp_mb__before_atomic();
+	set_bit(IMPF_INVALID, imp->imp_flags);
 	imp->imp_generation++;
 
 	ptlrpc_abort_inflight(imp);
@@ -194,7 +195,7 @@ int ptlrpc_set_import_discon(struct obd_import *imp,
 			  &target_start, &target_len);
 
 		import_set_state_nolock(imp, LUSTRE_IMP_DISCON);
-		if (imp->imp_replayable) {
+		if (test_bit(IMPF_REPLAYABLE, imp->imp_flags)) {
 			LCONSOLE_WARN("%s: Connection to %.*s (at %s) was lost; in progress operations using this service will wait for recovery to complete\n",
 			       imp->imp_obd->obd_name, target_len, target_start,
 			       obd_import_nid2str(imp));
@@ -300,15 +301,16 @@ void ptlrpc_invalidate_import(struct obd_import *imp)
 
 	atomic_inc(&imp->imp_inval_count);
 
-	if (!imp->imp_invalid || imp->imp_obd->obd_no_recov)
-		ptlrpc_deactivate_import(imp);
+	if (!test_bit(IMPF_INVALID, imp->imp_flags) ||
+	    imp->imp_obd->obd_no_recov)
+			ptlrpc_deactivate_import(imp);
 
 	if (CFS_FAIL_PRECHECK(OBD_FAIL_PTLRPC_CONNECT_RACE)) {
 		CFS_RACE(OBD_FAIL_PTLRPC_CONNECT_RACE);
 		msleep(10 * MSEC_PER_SEC);
 	}
 	CFS_FAIL_TIMEOUT(OBD_FAIL_MGS_CONNECT_NET, 3 * cfs_fail_val / 2);
-	LASSERT(imp->imp_invalid);
+	LASSERT(test_bit(IMPF_INVALID, imp->imp_flags));
 
 	/* Wait forever until inflight == 0. We really can't do it another
 	 * way because in some cases we need to wait for very long reply
@@ -409,7 +411,7 @@ void ptlrpc_activate_import(struct obd_import *imp, bool set_state_full)
 	struct obd_device *obd = imp->imp_obd;
 
 	spin_lock(&imp->imp_lock);
-	if (imp->imp_deactive != 0) {
+	if (test_bit(IMPF_DEACTIVE, imp->imp_flags)) {
 		LASSERT(imp->imp_state != LUSTRE_IMP_FULL);
 		if (imp->imp_state != LUSTRE_IMP_DISCON)
 			import_set_state_nolock(imp, LUSTRE_IMP_DISCON);
@@ -419,8 +421,8 @@ void ptlrpc_activate_import(struct obd_import *imp, bool set_state_full)
 	if (set_state_full)
 		import_set_state_nolock(imp, LUSTRE_IMP_FULL);
 
-	imp->imp_invalid = 0;
-
+	clear_bit(IMPF_INVALID, imp->imp_flags);
+	smp_mb__after_atomic();
 	spin_unlock(&imp->imp_lock);
 	obd_import_event(obd, imp, IMP_EVENT_ACTIVE);
 }
@@ -475,6 +477,7 @@ int ptlrpc_reconnect_import(struct obd_import *imp)
 
 	/* Allow reconnect attempts */
 	imp->imp_obd->obd_no_recov = 0;
+	smp_mb__after_atomic();
 	imp->imp_remote_handle.cookie = 0;
 	/* Attempt a new connect */
 	rc = ptlrpc_recover_import(imp, NULL, 0);
@@ -709,7 +712,8 @@ int ptlrpc_connect_import_locked(struct obd_import *imp)
 	import_set_state_nolock(imp, LUSTRE_IMP_CONNECTING);
 
 	imp->imp_conn_cnt++;
-	imp->imp_resend_replay = 0;
+	clear_bit(IMPF_RESEND_REPLAY, imp->imp_flags);
+	smp_mb__after_atomic();
 
 	if (!lustre_handle_is_used(&imp->imp_remote_handle))
 		initial_connect = 1;
@@ -799,9 +803,8 @@ int ptlrpc_connect_import_locked(struct obd_import *imp)
 	aa->pcaa_initial_connect = initial_connect;
 
 	if (aa->pcaa_initial_connect) {
-		spin_lock(&imp->imp_lock);
-		imp->imp_replayable = 1;
-		spin_unlock(&imp->imp_lock);
+		set_bit(IMPF_REPLAYABLE, imp->imp_flags);
+		smp_mb__after_atomic();
 		lustre_msg_add_op_flags(request->rq_reqmsg,
 					MSG_CONNECT_INITIAL);
 	}
@@ -988,14 +991,13 @@ static void ptlrpc_prepare_replay(struct obd_import *imp)
 	struct ptlrpc_request *req;
 
 	if (imp->imp_state != LUSTRE_IMP_REPLAY ||
-	    imp->imp_resend_replay)
+	    test_bit(IMPF_RESEND_REPLAY, imp->imp_flags))
 		return;
 
 	/* If the server was restart during repaly, the requests may
 	 * have been added to the unreplied list in former replay.
 	 */
 	spin_lock(&imp->imp_lock);
-
 	list_for_each_entry(req, &imp->imp_committed_list, rq_replay_list) {
 		if (list_empty(&req->rq_unreplied_list))
 			ptlrpc_add_unreplied(req);
@@ -1034,7 +1036,8 @@ static int ptlrpc_connect_interpret(const struct lu_env *env,
 
 	spin_lock(&imp->imp_lock);
 	if (imp->imp_state == LUSTRE_IMP_CLOSED) {
-		imp->imp_connect_tried = 1;
+		set_bit(IMPF_CONNECT_TRIED, imp->imp_flags);
+		smp_mb__after_atomic();
 		spin_unlock(&imp->imp_lock);
 		RETURN(0);
 	}
@@ -1092,7 +1095,8 @@ static int ptlrpc_connect_interpret(const struct lu_env *env,
 	spin_lock(&imp->imp_lock);
 
 	/* All imports are pingable */
-	imp->imp_pingable = 1;
+	set_bit(IMPF_PINGABLE, imp->imp_flags);
+	smp_mb__after_atomic();
 	imp->imp_force_reconnect = 0;
 	imp->imp_force_verify = 0;
 	imp->imp_setup_time = ktime_get_seconds();
@@ -1179,17 +1183,17 @@ static int ptlrpc_connect_interpret(const struct lu_env *env,
 	if (aa->pcaa_initial_connect) {
 		spin_lock(&imp->imp_lock);
 		if (msg_flags & MSG_CONNECT_REPLAYABLE) {
-			imp->imp_replayable = 1;
+			set_bit(IMPF_REPLAYABLE, imp->imp_flags);
 			CDEBUG(D_HA, "connected to replayable target: %s\n",
 			       obd2cli_tgt(imp->imp_obd));
 		} else {
-			imp->imp_replayable = 0;
+			clear_bit(IMPF_REPLAYABLE, imp->imp_flags);
 		}
+		smp_mb__after_atomic();
 
 		/* if applies, adjust the imp->imp_msg_magic here
 		 * according to reply flags
 		 */
-
 		imp->imp_remote_handle =
 			*lustre_msg_get_handle(request->rq_repmsg);
 
@@ -1268,7 +1272,7 @@ static int ptlrpc_connect_interpret(const struct lu_env *env,
 			       imp->imp_connection->c_remote_uuid.uuid);
 		}
 
-		if (imp->imp_invalid) {
+		if (test_bit(IMPF_INVALID, imp->imp_flags)) {
 			CDEBUG(D_HA, "%s: reconnected but import is invalid; "
 			       "marking evicted\n", imp->imp_obd->obd_name);
 			import_set_state(imp, LUSTRE_IMP_EVICTED);
@@ -1277,24 +1281,22 @@ static int ptlrpc_connect_interpret(const struct lu_env *env,
 			       imp->imp_obd->obd_name,
 			       obd2cli_tgt(imp->imp_obd));
 
-			spin_lock(&imp->imp_lock);
-			imp->imp_resend_replay = 1;
-			spin_unlock(&imp->imp_lock);
-
+			set_bit(IMPF_RESEND_REPLAY, imp->imp_flags);
+			smp_mb__after_atomic();
 			import_set_state(imp, imp->imp_replay_state);
 		} else {
 			import_set_state(imp, LUSTRE_IMP_RECOVER);
 		}
-	} else if ((MSG_CONNECT_RECOVERING & msg_flags) && !imp->imp_invalid) {
-		LASSERT(imp->imp_replayable);
+	} else if ((MSG_CONNECT_RECOVERING & msg_flags) &&
+		   !test_bit(IMPF_INVALID, imp->imp_flags)) {
+		LASSERT(test_bit(IMPF_REPLAYABLE, imp->imp_flags));
 		imp->imp_remote_handle =
 			*lustre_msg_get_handle(request->rq_repmsg);
 		imp->imp_last_replay_transno = 0;
 		imp->imp_replay_cursor = &imp->imp_committed_list;
 		import_set_state(imp, LUSTRE_IMP_REPLAY);
 	} else if ((ocd->ocd_connect_flags & OBD_CONNECT_LIGHTWEIGHT) != 0 &&
-		   !imp->imp_invalid) {
-
+		   !test_bit(IMPF_INVALID, imp->imp_flags)) {
 		obd_import_event(imp->imp_obd, imp, IMP_EVENT_INVALIDATE);
 		/* The below message is checked in recovery-small.sh test_106 */
 		DEBUG_REQ(D_HA, request, "%s: lwp recover",
@@ -1316,8 +1318,9 @@ static int ptlrpc_connect_interpret(const struct lu_env *env,
 	}
 
 	/* Sanity checks for a reconnected import. */
-	if (!(imp->imp_replayable) != !(msg_flags & MSG_CONNECT_REPLAYABLE))
-		CERROR("imp_replayable flag does not match server after reconnect. We should LBUG right here.\n");
+	if (!test_bit(IMPF_REPLAYABLE, imp->imp_flags) !=
+	    !(msg_flags & MSG_CONNECT_REPLAYABLE))
+		CERROR("IMPF_REPLAYABLE flag does not match server after reconnect. We should LBUG right here.\n");
 
 	if (lustre_msg_get_last_committed(request->rq_repmsg) > 0 &&
 	    lustre_msg_get_last_committed(request->rq_repmsg) <
@@ -1345,7 +1348,8 @@ finish:
 		ptlrpc_connect_import(imp);
 		spin_lock(&imp->imp_lock);
 		imp->imp_connected = 0;
-		imp->imp_connect_tried = 1;
+		set_bit(IMPF_CONNECT_TRIED, imp->imp_flags);
+		smp_mb__after_atomic();
 		spin_unlock(&imp->imp_lock);
 		RETURN(0);
 	}
@@ -1356,7 +1360,8 @@ out:
 
 	spin_lock(&imp->imp_lock);
 	imp->imp_connected = 0;
-	imp->imp_connect_tried = 1;
+	set_bit(IMPF_CONNECT_TRIED, imp->imp_flags);
+	smp_mb__after_atomic();
 
 	if (rc != 0) {
 		bool inact = false;
@@ -1385,7 +1390,8 @@ out:
 				rc = -EAGAIN;
 				imp->imp_force_reconnect = 1;
 			} else {
-				imp->imp_deactive = 1;
+				set_bit(IMPF_DEACTIVE, imp->imp_flags);
+				smp_mb__after_atomic();
 				ptlrpc_deactivate_import_nolock(imp);
 				inact = true;
 			}
@@ -1415,7 +1421,8 @@ out:
 					       OBD_OCD_VERSION_PATCH(ocd->ocd_version),
 					       OBD_OCD_VERSION_FIX(ocd->ocd_version),
 					       LUSTRE_VERSION_STRING);
-				imp->imp_deactive = 1;
+				set_bit(IMPF_DEACTIVE, imp->imp_flags);
+				smp_mb__after_atomic();
 				ptlrpc_deactivate_import_nolock(imp);
 				import_set_state_nolock(imp, LUSTRE_IMP_CLOSED);
 				inact = true;
@@ -1495,10 +1502,11 @@ static int completed_replay_interpret(const struct lu_env *env,
 {
 	ENTRY;
 	atomic_dec(&req->rq_import->imp_replay_inflight);
-	if (req->rq_status == 0 && !req->rq_import->imp_vbr_failed) {
+	if (req->rq_status == 0 &&
+	    !test_bit(IMPF_VBR_FAILED, req->rq_import->imp_flags)) {
 		ptlrpc_import_recovery_state_machine(req->rq_import);
 	} else {
-		if (req->rq_import->imp_vbr_failed) {
+		if (test_bit(IMPF_VBR_FAILED, req->rq_import->imp_flags)) {
 			CDEBUG(D_WARNING,
 			       "%s: version recovery fails, reconnecting\n",
 			       req->rq_import->imp_obd->obd_name);
@@ -1624,9 +1632,8 @@ int ptlrpc_import_recovery_state_machine(struct obd_import *imp)
 		       obd2cli_tgt(imp->imp_obd),
 		       imp->imp_connection->c_remote_uuid.uuid);
 		/* reset vbr_failed flag upon eviction */
-		spin_lock(&imp->imp_lock);
-		imp->imp_vbr_failed = 0;
-		spin_unlock(&imp->imp_lock);
+		clear_bit(IMPF_VBR_FAILED, imp->imp_flags);
+		smp_mb__after_atomic();
 
 		/* bug 17802:  XXX client_disconnect_export vs connect request
 		 * race. if client is evicted at this time then we start

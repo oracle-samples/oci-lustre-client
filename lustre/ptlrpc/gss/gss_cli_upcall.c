@@ -306,7 +306,7 @@ int gss_do_ctx_init_rpc(char __user *buffer, unsigned long count)
 		RETURN(rc);
 	}
 
-	if (imp->imp_deactive) {
+	if (test_bit(IMPF_DEACTIVE, imp->imp_flags)) {
 		rc = -EINVAL;
 		CERROR("%s: import has been deactivated: rc = %d\n",
 		       obd->obd_name, rc);

@@ -169,7 +169,7 @@ void ptlrpc_ping_import_soon(struct obd_import *imp)
 
 static inline int imp_is_deactive(struct obd_import *imp)
 {
-	return imp->imp_deactive ||
+	return test_bit(IMPF_DEACTIVE, imp->imp_flags) ||
 	       CFS_FAIL_CHECK(OBD_FAIL_PTLRPC_IMP_DEACTIVE);
 }
 
@@ -191,7 +191,8 @@ static timeout_t pinger_check_timeout(time64_t time)
 	/* Process imports to find a nearest next ping */
 	list_for_each(iter, &pinger_imports) {
 		imp = list_entry(iter, struct obd_import, imp_pinger_chain);
-		if (!imp->imp_pingable || imp->imp_next_ping < now)
+		if (!test_bit(IMPF_PINGABLE, imp->imp_flags) ||
+		    imp->imp_next_ping < now)
 			continue;
 		next_timeout = imp->imp_next_ping - now;
 		/* make sure imp_next_ping in the future from time */
@@ -251,12 +252,13 @@ static void ptlrpc_pinger_process_import(struct obd_import *imp,
 	       "%s->%s: level %s/%u force %u force_next %u deactive %u pingable %u suppress %u\n",
 	       imp->imp_obd->obd_uuid.uuid, obd2cli_tgt(imp->imp_obd),
 	       ptlrpc_import_state_name(level), level, force, force_next,
-	       imp->imp_deactive, imp->imp_pingable, suppress);
+	       test_bit(IMPF_DEACTIVE, imp->imp_flags),
+	       test_bit(IMPF_PINGABLE, imp->imp_flags), suppress);
 
 	if (level == LUSTRE_IMP_DISCON && !imp_is_deactive(imp)) {
 		/* wait for a while before trying recovery again */
 		imp->imp_next_ping = ptlrpc_next_reconnect(imp);
-		if (!imp->imp_no_pinger_recover ||
+		if (!test_bit(IMPF_NO_PINGER_RECOVER, imp->imp_flags) ||
 		    imp->imp_connect_error == -EAGAIN) {
 			CDEBUG(D_HA, "%s: starting recovery\n",
 			       obd2cli_tgt(imp->imp_obd));
@@ -273,7 +275,8 @@ static void ptlrpc_pinger_process_import(struct obd_import *imp,
 		if (force)
 			imp->imp_force_verify = 1;
 		spin_unlock(&imp->imp_lock);
-	} else if ((imp->imp_pingable && !suppress) || force_next || force) {
+	} else if ((test_bit(IMPF_PINGABLE, imp->imp_flags) && !suppress) ||
+		   force_next || force) {
 		spin_unlock(&imp->imp_lock);
 		ptlrpc_ping(imp);
 	} else {
@@ -299,7 +302,8 @@ static void ptlrpc_pinger_main(struct work_struct *ws)
 		list_for_each_entry(imp, &pinger_imports, imp_pinger_chain) {
 			ptlrpc_pinger_process_import(imp, this_ping);
 			/* obd_timeout might have changed */
-			if (imp->imp_pingable && imp->imp_next_ping &&
+			if (test_bit(IMPF_PINGABLE, imp->imp_flags) &&
+			    imp->imp_next_ping &&
 			    imp->imp_next_ping > this_ping + PING_INTERVAL)
 				ptlrpc_update_next_ping(imp, 0);
 		}

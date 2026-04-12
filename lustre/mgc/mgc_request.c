@@ -1038,8 +1038,10 @@ static int mgc_set_info_async(const struct lu_env *env, struct obd_export *exp,
 		value = *(int *)val;
 		CDEBUG(D_MGC, "InitRecov %s %d/d%d:i%d:r%d:or%d:%s\n",
 		       imp->imp_obd->obd_name, value,
-		       imp->imp_deactive, imp->imp_invalid,
-		       imp->imp_replayable, imp->imp_obd->obd_replayable,
+		       test_bit(IMPF_DEACTIVE, imp->imp_flags),
+		       test_bit(IMPF_INVALID, imp->imp_flags),
+		       test_bit(IMPF_REPLAYABLE, imp->imp_flags),
+		       imp->imp_obd->obd_replayable,
 		       ptlrpc_import_state_name(imp->imp_state));
 		/* Resurrect the import immediately if
 		 * 1. we previously got disconnected,
