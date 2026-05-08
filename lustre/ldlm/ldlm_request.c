@@ -2493,7 +2493,7 @@ static int replay_lock_interpret(const struct lu_env *env,
 	ptlrpc_import_recovery_state_machine(req->rq_import);
 	LDLM_LOCK_PUT(lock);
 out:
-	if (rc != ELDLM_OK)
+	if (rc != ELDLM_OK || CFS_FAIL_CHECK(OBD_FAIL_PTLRPC_FAIL_REPLAY))
 		ptlrpc_connect_import(req->rq_import);
 
 	RETURN(rc);
