@@ -42,6 +42,10 @@
 #include <linux/backing-dev.h>
 #include <linux/pagemap.h>
 
+#ifndef ATTR_CTIME_SET /* added in v6.17-rc7-14-gafc5b36e29 */
+#define ATTR_CTIME_SET (1 << 28) /* safe for at least v4.18..v6.17 */
+#endif
+
 #ifndef HAVE_FILE_DENTRY
 static inline struct dentry *file_dentry(const struct file *file)
 {
