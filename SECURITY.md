@@ -1,31 +1,38 @@
-# Security Policy
+# Reporting security vulnerabilities
 
-## Supported Versions
+Oracle values the independent security research community and believes that
+responsible disclosure of security vulnerabilities helps us ensure the security
+and privacy of all our users.
 
-The currently supported maintenance release is 2.15.
+Please do NOT raise a GitHub Issue to report a security vulnerability. If you
+believe you have found a security vulnerability, please submit a report to
+[secalert_us@oracle.com][1] preferably with a proof of concept. Please review
+some additional information on [how to report security vulnerabilities to Oracle][2].
+We encourage people who contact Oracle Security to use email encryption using
+[our encryption key][3].
 
-| Version | Supported          |
-| ------- | ------------------ |
-| 2.15.x  | :white_check_mark: |
-| 2.12.x  | limited            |
-| 2.10.x  | :x:                |
-| 2.7.x   | :x:                |
+We ask that you do not use other channels or contact the project maintainers
+directly.
 
-## Reporting a Vulnerability
+Non-vulnerability related security issues including ideas for new or improved
+security features are welcome on GitHub Issues.
 
-If you have details of a suspected security vulnerability in Lustre code that you
-wish to report then please email us at security@whamcloud.com with the details.
+## Security updates, alerts and bulletins
 
-Please do not file a public JIRA issue for a security vulnerability - we do not want
-to draw attention to the vulnerability until a fix has been developed and administrators
-have been alerted and have had some time to put a mitigation in place.
+Security updates will be released on a regular cadence. Many of our projects
+will typically release security fixes in conjunction with the
+Oracle Critical Patch Update program. Additional
+information, including past advisories, is available on our [security alerts][4]
+page.
 
-Ideally the reporting email should have as much detail as possible:
+## Security-related information
 
-- reproducer, versions affected, fix if available, etc.
-- indicate to whom (individual and/or affiliation) that credit for finding the issue should be reported
-- details of any CVE already reserved
-- our intentions around disclosing the details of the vulnerability
+We will provide security related information such as a threat model, considerations
+for secure use, or any known security issues in our documentation. Please note
+that labs and sample code are intended to demonstrate a concept and may not be
+sufficiently hardened for production use.
 
-We aim to respond to any such reports within three business days of receipt.
-
+[1]: mailto:secalert_us@oracle.com
+[2]: https://www.oracle.com/corporate/security-practices/assurance/vulnerability/reporting.html
+[3]: https://www.oracle.com/security-alerts/encryptionkey.html
+[4]: https://www.oracle.com/security-alerts/
