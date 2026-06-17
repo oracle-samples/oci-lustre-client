@@ -355,7 +355,8 @@ void ptlrpc_at_set_req_timeout(struct ptlrpc_request *req)
 		 * (because of which we are sending this request) would
 		 * timeout waiting for us
 		 */
-		req->rq_timeout = req->rq_import->imp_server_timeout ?
+		req->rq_timeout = test_bit(IMPF_SERVER_TIMEOUT,
+					   req->rq_import->imp_flags) ?
 				  obd_timeout / 2 : obd_timeout;
 	} else {
 		struct imp_at *at = &req->rq_import->imp_at;
@@ -1597,9 +1598,10 @@ static int after_reply(struct ptlrpc_request *req)
 		 */
 		if (ptlrpc_recoverable_error(rc)) {
 			if (req->rq_send_state != LUSTRE_IMP_FULL ||
-			    imp->imp_obd->obd_no_recov || imp->imp_dlm_fake) {
-				RETURN(rc);
-			}
+			    imp->imp_obd->obd_no_recov ||
+			    test_bit(IMPF_DLM_FAKE, imp->imp_flags))
+					RETURN(rc);
+
 			ptlrpc_request_handle_notconn(req);
 			RETURN(rc);
 		}
@@ -1621,7 +1623,7 @@ static int after_reply(struct ptlrpc_request *req)
 
 	if (lustre_msg_get_transno(req->rq_repmsg) ||
 	    lustre_msg_get_opc(req->rq_reqmsg) == LDLM_ENQUEUE)
-		imp->imp_no_cached_data = 0;
+			clear_bit(IMPF_NO_CACHED_DATA, imp->imp_flags);
 
 	if (test_bit(IMPF_REPLAYABLE, imp->imp_flags)) {
 		/* if other threads are waiting for ptlrpc_free_committed()
@@ -2399,7 +2401,7 @@ int ptlrpc_expire_one_request(struct ptlrpc_request *req, int async_unlink)
 	atomic_inc(&imp->imp_timeouts);
 
 	/* The DLM server doesn't want recovery run on its imports. */
-	if (imp->imp_dlm_fake)
+	if (test_bit(IMPF_DLM_FAKE, imp->imp_flags))
 		RETURN(1);
 
 	/*
