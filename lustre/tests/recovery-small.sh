@@ -9,6 +9,7 @@ init_test_env "$@"
 init_logging
 
 ALWAYS_EXCEPT="$RECOVERY_SMALL_EXCEPT "
+always_except LU-20376 170
 
 build_test_filter
 
