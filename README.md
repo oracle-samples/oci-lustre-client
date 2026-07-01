@@ -1,44 +1,128 @@
-*This repository acts as a template for all of Oracle’s GitHub repositories. It contains information about the guidelines for those repositories. All files and sections contained in this template are mandatory, and a GitHub app ensures alignment with these guidelines. To get started with a new repository, replace the italic paragraphs with the respective text for your project.*
+  _           _
+ | |         | |
+ | |_   _ ___| |_ _ __ ___
+ | | | | / __| __| '__/ _ \
+ | | |_| \__ | |_| | |  __/
+ |_|\__,_|___/\__|_|  \___|
 
-# Project name
+Lustre is an open-source, distributed parallel file system designed for
+scalability, high-performance, and high-availability.
 
-*Describe your project's features, functionality and target audience*
+Lustre is purpose-built to provide a coherent, global POSIX-compliant
+namespace for very large scale computer clusters, including the world's
+largest supercomputer platforms.
 
-## Installation
+It can support hundreds of petabytes of data storage and terabytes per
+second in simultaneous, aggregate throughput.
 
-*Provide detailed step-by-step installation instructions. You can name this section **How to Run** or **Getting Started** instead of **Installation** if that's more acceptable for your project*
++--------------------------------+
+| OCI Managed Lustre File System |
++--------------------------------+
 
-## Documentation
+OCI Managed Lustre Filesystem Client releases can be tracked using one of
+the methods described in the oci-client-releases.md file in this repository.
 
-*Developer-oriented documentation can be published on GitHub, but all product documentation must be published on <https://docs.oracle.com>*
++---------------+
+| Documentation |
++---------------+
 
-## Examples
+More information about Lustre:
+    http://www.lustre.org/
+Many resources for using, configuring, and troubleshooting Lustre are at:
+    http://wiki.lustre.org/
 
-*Describe any included examples or provide a link to a demo/tutorial*
+For in-tree documentation, see the following directories:
+    Documentation/
+    lustre/doc/
+    lnet/doc/
 
-## Help
++-----------+
+| Community |
++-----------+
 
-*Inform users on where to get help or how to receive official support from Oracle (if applicable)*
+The low-volume list for announcements of new releases is at:
+    http://lists.lustre.org/listinfo.cgi/lustre-announce-lustre.org
+The generic Lustre discussion mailing list is available at:
+    http://lists.lustre.org/listinfo.cgi/lustre-discuss-lustre.org
+The Lustre developer mailing list is at:
+    http://lists.lustre.org/pipermail/lustre-devel-lustre.org
 
-## Contributing
+To report bugs, please visit:
+    https://jira.whamcloud.com/
 
-*If your project has specific contribution requirements, update the CONTRIBUTING.md file to ensure those requirements are clearly explained*
+The official repository is hosted at:
+    https://git.whamcloud.com/
 
-This project welcomes contributions from the community. Before submitting a pull request, please [review our contribution guide](./CONTRIBUTING.md)
++----------+
+| Building |
++----------+
 
-## Security
+Detailed instructions for building, configuring and running Lustre:
+    http://wiki.lustre.org/Compiling_Lustre
+and
+    https://wiki.whamcloud.com/display/PUB/Getting+started+with+Lustre.
 
-Please consult the [security guide](./SECURITY.md) for our responsible security vulnerability disclosure process
 
-## License
+To build Lustre:
 
-*The correct copyright notice format for both documentation and software is*
-    "Copyright (c) [year,] year Oracle and/or its affiliates."
-*You must include the year the content was first released (on any platform) and the most recent year in which it was revised*
+    bash autogen.sh
+    ./configure
+    make
 
-Copyright (c) 2026 Oracle and/or its affiliates.
+To see all available make targets:
 
-*Replace this statement if your project is not licensed under the UPL*
+    make help
 
-Released under the Universal Permissive License v1.0 as shown at
-<https://oss.oracle.com/licenses/upl/>.
++---------+
+| Testing |
++---------+
+
+Explanation of Lustre test suites:
+    https://wiki.lustre.org/Test_Descriptions
+and Lustre test environment variables:
+    https://wiki.whamcloud.com/display/PUB/Lustre+Test+Tools+Environment+Variables
+
+
+To play with a test Lustre filesystem:
+
+    ./lustre/tests/llmount.sh
+
+To run a test on the filesystem:
+
+    ./lustre/tests/auster -v sanity --only 1
+
+To clean up:
+
+    ./lustre/tests/llmountcleanup.sh
+
+To run LUTF (LNet Unit Test Framework) in a Python virtual environment:
+
+    python3 -m venv venv
+    source venv/bin/activate
+    pip3 install -r requirements.txt
+    ./lustre/tests/lutf.sh
+
++--------------+
+| Contributing |
++--------------+
+
+Instructions for contributing patches for Lustre:
+    http://wiki.lustre.org/Submitting_Changes
+and
+    http://wiki.lustre.org/Using_Gerrit
+
+
+The Lustre Coding Style Guidelines can be found at:
+    http://wiki.lustre.org/Lustre_Coding_Style_Guidelines
+
+The Lustre Test Script Style Guidelines can be found at:
+    http://wiki.lustre.org/Lustre_Script_Coding_Style
+
+
+In order to improve the quality of patches submitted to the Lustre tree,
+it is possible to automatically check every patch and commit against the
+Lustre Coding Guidelines.  To do this, run in the top-level lustre/ tree:
+
+    cd .git/hooks
+    ln -s ../../contrib/git-hooks/{prepare-,}commit-msg ./
+    cd ../..
