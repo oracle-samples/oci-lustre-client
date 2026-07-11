@@ -15,6 +15,13 @@ largest supercomputer platforms.
 It can support hundreds of petabytes of data storage and terabytes per
 second in simultaneous, aggregate throughput.
 
++--------------------------------+
+| OCI Managed Lustre File System |
++--------------------------------+
+
+OCI Managed Lustre Filesystem Client releases can be tracked using one of
+the methods described in the oci-client-releases.md file in this repository.
+
 +---------------+
 | Documentation |
 +---------------+
