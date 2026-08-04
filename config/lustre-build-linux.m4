@@ -729,7 +729,7 @@ AC_DEFUN([LB_CHECK_LINUX_HEADER], [
 	AS_VAR_PUSHDEF([lb_header], [lb_cv_header_$1])
 	AC_CACHE_CHECK([for $1], lb_header, [
 		LB_LINUX_COMPILE_IFELSE([LB_LANG_PROGRAM([@%:@include <$1>])],
-			[modules], [test -s conftest/conftest.o],
+			[modules], [test -s kconftest.dir/conftest.o],
 			[AS_VAR_SET([lb_header], [yes])],
 			[AS_VAR_SET([lb_header], [no])])
 	])
