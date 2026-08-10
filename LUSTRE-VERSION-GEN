@@ -9,7 +9,7 @@
 # Return lustre version string
 #
 
-DEFAULT_VERSION=2.15.90_oci_v4
+DEFAULT_VERSION=2.15.90_oci_v5
 LVF=LUSTRE-VERSION-FILE
 
 LF='
