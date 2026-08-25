@@ -307,10 +307,6 @@ struct lov_object {
 			 * Preferred mirror is initialized by the preferred
 			 * bit of lsme. It can be changed when the preferred
 			 * is inaccessible.
-			 * In order to make lov_lsm_entry() return the same
-			 * mirror in the same IO context, it's only possible
-			 * to change the preferred mirror when the
-			 * lo_active_ios reaches zero.
 			 */
 			int             lo_preferred_mirror;
 			/**
@@ -639,7 +635,6 @@ struct lu_object *lovsub_object_alloc(const struct lu_env *env,
                                       const struct lu_object_header *hdr,
                                       struct lu_device *dev);
 
-int lov_lsm_entry(const struct lov_stripe_md *lsm, __u64 offset);
 int lov_io_layout_at(struct lov_io *lio, __u64 offset);
 
 #define lov_foreach_target(lov, var)                    \
