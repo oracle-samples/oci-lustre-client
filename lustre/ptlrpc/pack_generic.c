@@ -2672,7 +2672,7 @@ void dump_rniobuf(struct niobuf_remote *nb)
 	       nb->rnb_offset, nb->rnb_len, nb->rnb_flags);
 }
 
-void dump_obdo(struct obdo *oa)
+static void dump_obdo(struct obdo *oa)
 {
 	u64 valid = oa->o_valid;
 
@@ -2862,7 +2862,7 @@ void lustre_swab_hsm_user_item(struct hsm_user_item *hui)
 	lustre_swab_hsm_extent(&hui->hui_extent);
 }
 
-void lustre_swab_lu_extent(struct lu_extent *le)
+static void lustre_swab_lu_extent(struct lu_extent *le)
 {
 	__swab64s(&le->e_start);
 	__swab64s(&le->e_end);
