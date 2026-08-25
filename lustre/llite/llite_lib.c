@@ -1980,7 +1980,7 @@ static int ll_md_setattr(struct dentry *dentry, struct md_op_data *op_data)
  * \retval 0		on success
  * \retval negative	errno on failure
  */
-int ll_io_zero_page(struct inode *inode, pgoff_t index, pgoff_t offset,
+static int ll_io_zero_page(struct inode *inode, pgoff_t index, pgoff_t offset,
 		    unsigned len)
 {
 	struct ll_inode_info *lli = ll_i2info(inode);

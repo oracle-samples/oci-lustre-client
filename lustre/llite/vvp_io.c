@@ -1032,7 +1032,7 @@ static inline void ll_account_page_dirtied(struct page *page,
  * Backwards compat for 3.x, 5.x kernels relating to memcg handling
  * & rename of radix tree to xarray.
  */
-void vvp_set_batch_dirty(struct folio_batch *fbatch)
+static void vvp_set_batch_dirty(struct folio_batch *fbatch)
 {
 	struct page *page = fbatch_at_pg(fbatch, 0, 0);
 	int count = folio_batch_count(fbatch);
