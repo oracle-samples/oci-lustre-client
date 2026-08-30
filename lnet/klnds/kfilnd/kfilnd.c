@@ -89,6 +89,13 @@ static int kfilnd_send(struct lnet_ni *ni, void *private, struct lnet_msg *msg)
 	int rc;
 	bool tn_key = false;
 	lnet_nid_t tgt_nid4;
+	bool gpu = lnet_md_is_gpu(msg->msg_md);
+	struct iov_iter from;
+
+	iov_iter_bvec(&from, WRITE,
+		      msg->msg_kiov, msg->msg_niov,
+		      msg->msg_len + msg->msg_offset);
+	iov_iter_advance(&from, msg->msg_offset);
 
 	switch (type) {
 	default:
@@ -108,7 +115,7 @@ static int kfilnd_send(struct lnet_ni *ni, void *private, struct lnet_msg *msg)
 
 		nob = offsetof(struct kfilnd_msg,
 			       proto.immed.payload[msg->msg_md->md_length]);
-		if (nob <= KFILND_IMMEDIATE_MSG_SIZE) {
+		if (nob <= KFILND_IMMEDIATE_MSG_SIZE && !gpu) {
 			lnd_msg_type = KFILND_MSG_IMMEDIATE;
 			break;
 		}
@@ -121,7 +128,7 @@ static int kfilnd_send(struct lnet_ni *ni, void *private, struct lnet_msg *msg)
 	case LNET_MSG_PUT:
 		nob = offsetof(struct kfilnd_msg,
 			       proto.immed.payload[msg->msg_len]);
-		if (nob <= KFILND_IMMEDIATE_MSG_SIZE) {
+		if (nob <= KFILND_IMMEDIATE_MSG_SIZE && !gpu) {
 			lnd_msg_type = KFILND_MSG_IMMEDIATE;
 			break;
 		}
@@ -152,23 +159,28 @@ static int kfilnd_send(struct lnet_ni *ni, void *private, struct lnet_msg *msg)
 		}
 	}
 
+	tn->tn_gpu = gpu;
+
 	switch (lnd_msg_type) {
 	case KFILND_MSG_IMMEDIATE:
-		rc = kfilnd_tn_set_kiov_buf(tn, msg->msg_kiov, msg->msg_niov,
-					    msg->msg_offset, msg->msg_len);
-		if (rc) {
-			CERROR("Failed to setup immediate buffer rc %d\n", rc);
-			kfilnd_tn_free(tn);
-			return rc;
-		}
+		CDEBUG(D_NET,
+		       "tn %p msg_kiov %p msg_niov %u msg_offset %u msg_len %u\n",
+		       tn, msg->msg_kiov, msg->msg_niov,
+		       msg->msg_offset, msg->msg_len);
 
+		rc = copy_from_iter(&tn->tn_tx_msg.msg->proto.immed.payload,
+				    msg->msg_len, &from);
+		if (rc != msg->msg_len)
+			return -EFAULT;
+
+		tn->tn_nob = msg->msg_len;
 		event = TN_EVENT_INIT_IMMEDIATE;
 		break;
 
 	case KFILND_MSG_BULK_PUT_REQ:
 		tn->sink_buffer = false;
-		rc = kfilnd_tn_set_kiov_buf(tn, msg->msg_kiov, msg->msg_niov,
-					    msg->msg_offset, msg->msg_len);
+		rc = kfilnd_tn_set_buf(ni, tn, msg->msg_kiov, msg->msg_niov,
+				       msg->msg_offset, msg->msg_len);
 		if (rc) {
 			CERROR("Failed to setup PUT source buffer rc %d\n", rc);
 			kfilnd_tn_free(tn);
@@ -191,10 +203,10 @@ static int kfilnd_send(struct lnet_ni *ni, void *private, struct lnet_msg *msg)
 		}
 
 		tn->sink_buffer = true;
-		rc = kfilnd_tn_set_kiov_buf(tn, msg->msg_md->md_kiov,
-					    msg->msg_md->md_niov,
-					    msg->msg_md->md_offset,
-					    msg->msg_md->md_length);
+		rc = kfilnd_tn_set_buf(ni, tn, msg->msg_md->md_kiov,
+				       msg->msg_md->md_niov,
+				       msg->msg_md->md_offset,
+				       msg->msg_md->md_length);
 		if (rc) {
 			CERROR("Failed to setup GET sink buffer rc %d\n", rc);
 			kfilnd_tn_free(tn);
@@ -214,7 +226,12 @@ static int kfilnd_send(struct lnet_ni *ni, void *private, struct lnet_msg *msg)
 
 	KFILND_TN_DEBUG(tn, "%s in %u bytes in %u frags",
 			msg_type_to_str(lnd_msg_type), tn->tn_nob,
-			tn->tn_num_iovec);
+#ifdef HAVE_KFI_SGL
+			tn->tn_sgt.nents
+#else
+			tn->tn_num_iovec
+#endif
+			);
 
 	/* Start the state machine processing this transaction */
 	kfilnd_tn_event_handler(tn, event, 0);
@@ -223,19 +240,17 @@ static int kfilnd_send(struct lnet_ni *ni, void *private, struct lnet_msg *msg)
 }
 
 static int kfilnd_recv(struct lnet_ni *ni, void *private, struct lnet_msg *msg,
-		       int delayed, unsigned int niov,
-		       struct bio_vec *kiov,
-		       unsigned int offset, unsigned int mlen,
-		       unsigned int rlen)
+		       int delayed, struct iov_iter *to, unsigned int rlen)
 {
 	struct kfilnd_transaction *tn = private;
 	struct kfilnd_msg *rxmsg = tn->tn_rx_msg.msg;
+	int wanted = iov_iter_count(to);
 	int nob;
 	int rc = 0;
 	int status = 0;
 	enum tn_events event;
 
-	if (mlen > rlen)
+	if (wanted > rlen)
 		return -EINVAL;
 
 	/* Transaction must be in receive state */
@@ -259,23 +274,33 @@ static int kfilnd_recv(struct lnet_ni *ni, void *private, struct lnet_msg *msg,
 		}
 		tn->tn_nob = nob;
 
-		lnet_copy_flat2kiov(niov, kiov, offset,
-				    KFILND_IMMEDIATE_MSG_SIZE, rxmsg,
-				    offsetof(struct kfilnd_msg,
-					     proto.immed.payload),
-				    mlen);
+		rc = copy_to_iter(&rxmsg->proto.immed.payload, wanted, to);
+		if (rc != wanted) {
+			rc = -EFAULT;
+			break;
+		}
 
+		rc = 0;
 		kfilnd_tn_event_handler(tn, TN_EVENT_RX_OK, 0);
 		return 0;
 
 	case KFILND_MSG_BULK_PUT_REQ:
-		if (mlen == 0) {
+		if (wanted == 0) {
 			event = TN_EVENT_SKIP_TAG_RMA;
 		} else {
+			struct lnet_libmd *msg_md = NULL;
+
+			if (msg)
+				msg_md = msg->msg_md;
+
+			tn->tn_gpu = lnet_md_is_gpu(msg_md);
+
 			/* Post the buffer given us as a sink  */
 			tn->sink_buffer = true;
-			rc = kfilnd_tn_set_kiov_buf(tn, kiov, niov, offset,
-						    mlen);
+			rc = kfilnd_tn_set_buf(ni, tn,
+					       (struct bio_vec *)to->bvec,
+					       to->nr_segs, to->iov_offset,
+					       wanted);
 			if (rc) {
 				CERROR("Failed to setup PUT sink buffer rc %d\n", rc);
 				kfilnd_tn_free(tn);
@@ -290,12 +315,18 @@ static int kfilnd_recv(struct lnet_ni *ni, void *private, struct lnet_msg *msg,
 			event = TN_EVENT_SKIP_TAG_RMA;
 			status = -ENODATA;
 		} else {
+			struct lnet_libmd *msg_md = NULL;
+
+			if (msg)
+				msg_md = msg->msg_md;
+
+			tn->tn_gpu = lnet_md_is_gpu(msg_md);
+
 			/* Post the buffer given to us as a source  */
 			tn->sink_buffer = false;
-			rc = kfilnd_tn_set_kiov_buf(tn, msg->msg_kiov,
-						    msg->msg_niov,
-						    msg->msg_offset,
-						    msg->msg_len);
+			rc = kfilnd_tn_set_buf(ni, tn, msg->msg_kiov,
+					       msg->msg_niov, msg->msg_offset,
+					       msg->msg_len);
 			if (rc) {
 				CERROR("Failed to setup GET source buffer rc %d\n", rc);
 				kfilnd_tn_free(tn);
@@ -332,9 +363,31 @@ static int kfilnd_recv(struct lnet_ni *ni, void *private, struct lnet_msg *msg,
 
 	KFILND_TN_DEBUG(tn, "%s in %u bytes in %u frags",
 			msg_type_to_str(rxmsg->type), tn->tn_nob,
-			tn->tn_num_iovec);
+#ifdef HAVE_KFI_SGL
+			tn->tn_sgt.nents
+#else
+			tn->tn_num_iovec
+#endif
+			);
 
 	kfilnd_tn_event_handler(tn, event, status);
+
+	return rc;
+}
+
+static int
+kfilnd_tun_defaults(struct lnet_lnd_tunables *tunables,
+		    struct lnet_ioctl_config_lnd_cmn_tunables *cmn)
+{
+	int rc;
+
+	/* sync to latest module settings */
+	rc = kfilnd_tunables_setup(tunables, true, cmn);
+	if (rc < 0)
+		return rc;
+
+	memcpy(&tunables->lnd_tun_u.lnd_kfi, &kfi_default_tunables,
+	       sizeof(kfi_default_tunables));
 
 	return rc;
 }
@@ -358,11 +411,20 @@ static const struct ln_key_list kfilnd_tunables_keys = {
 			.lkp_value      = "traffic_class",
 			.lkp_data_type  = NLA_STRING,
 		},
+		[LNET_NET_KFILND_TUNABLES_ATTR_TRAFFIC_CLASS_NUM]  = {
+			.lkp_value      = "traffic_class_num",
+			.lkp_data_type  = NLA_S32,
+		},
+		[LNET_NET_KFILND_TUNABLES_ATTR_TIMEOUT]  = {
+			.lkp_value      = "timeout",
+			.lkp_data_type  = NLA_S32,
+		},
 	},
 };
 
 static int
-kfilnd_nl_get(int cmd, struct sk_buff *msg, int type, void *data)
+kfilnd_nl_get(int cmd, struct sk_buff *msg, int type, void *data,
+	      bool export_backup)
 {
 	struct lnet_lnd_tunables *tunables;
 	struct lnet_ni *ni = data;
@@ -382,6 +444,13 @@ kfilnd_nl_get(int cmd, struct sk_buff *msg, int type, void *data)
 		    tunables->lnd_tun_u.lnd_kfi.lnd_auth_key);
 	nla_put_string(msg, LNET_NET_KFILND_TUNABLES_ATTR_TRAFFIC_CLASS,
 		       tunables->lnd_tun_u.lnd_kfi.lnd_traffic_class_str);
+	if (!export_backup) {
+		nla_put_s32(msg,
+			    LNET_NET_KFILND_TUNABLES_ATTR_TRAFFIC_CLASS_NUM,
+			    tunables->lnd_tun_u.lnd_kfi.lnd_traffic_class);
+		nla_put_s32(msg, LNET_NET_KFILND_TUNABLES_ATTR_TIMEOUT,
+			    kfilnd_timeout());
+	}
 
 	return 0;
 }
@@ -423,17 +492,32 @@ kfilnd_nl_set(int cmd, struct nlattr *attr, int type, void *data)
 	return rc;
 }
 
+static unsigned int
+kfilnd_get_dev_prio(struct lnet_ni *ni, unsigned int dev_idx)
+{
+	struct kfilnd_dev *dev = ni->ni_data;
+	struct device *device = NULL;
+
+	if (dev)
+		device = dev->device;
+
+	return lnet_get_dev_prio(device, dev_idx);
+}
+
 static int kfilnd_startup(struct lnet_ni *ni);
 
 static const struct lnet_lnd the_kfilnd = {
-	.lnd_type	= KFILND,
-	.lnd_startup	= kfilnd_startup,
-	.lnd_shutdown	= kfilnd_shutdown,
-	.lnd_send	= kfilnd_send,
-	.lnd_recv	= kfilnd_recv,
-	.lnd_nl_get	= kfilnd_nl_get,
-	.lnd_nl_set	= kfilnd_nl_set,
-	.lnd_keys	= &kfilnd_tunables_keys,
+	.lnd_type		= KFILND,
+	.lnd_startup		= kfilnd_startup,
+	.lnd_shutdown		= kfilnd_shutdown,
+	.lnd_send		= kfilnd_send,
+	.lnd_recv		= kfilnd_recv,
+	.lnd_tun_defaults	= kfilnd_tun_defaults,
+	.lnd_nl_get		= kfilnd_nl_get,
+	.lnd_nl_set		= kfilnd_nl_set,
+	.lnd_get_timeout	= kfilnd_timeout,
+	.lnd_keys		= &kfilnd_tunables_keys,
+	.lnd_get_dev_prio	= kfilnd_get_dev_prio,
 };
 
 static int kfilnd_startup(struct lnet_ni *ni)
@@ -452,7 +536,9 @@ static int kfilnd_startup(struct lnet_ni *ni)
 		return -EINVAL;
 	}
 
-	rc = kfilnd_tunables_setup(ni);
+	rc = kfilnd_tunables_setup(&ni->ni_lnd_tunables,
+				   ni->ni_lnd_tunables_set,
+				   &ni->ni_net->net_tunables);
 	if (rc) {
 		CERROR("Can't configure tunable values, rc = %d\n", rc);
 		goto err;
@@ -558,5 +644,5 @@ MODULE_DESCRIPTION("Kfabric Lustre Network Driver");
 MODULE_VERSION(KFILND_VERSION);
 MODULE_LICENSE("GPL");
 
-module_init(kfilnd_init);
+late_initcall_sync(kfilnd_init);
 module_exit(kfilnd_exit);
