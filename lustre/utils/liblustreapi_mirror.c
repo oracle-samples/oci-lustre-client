@@ -130,6 +130,9 @@ ssize_t llapi_mirror_read(int fd, unsigned int id, void *buf, size_t count,
 
 		if (bytes_read < 0) {
 			result = -errno;
+			llapi_error(LLAPI_MSG_WARN, result,
+				    "fail to pread %ld-%ld of mirror %u",
+				    pos, count, id);
 			break;
 		}
 
@@ -172,6 +175,9 @@ ssize_t llapi_mirror_write(int fd, unsigned int id, const void *buf,
 		bytes_written = pwrite(fd, buf, count, pos);
 		if (bytes_written < 0) {
 			result = -errno;
+			llapi_error(LLAPI_MSG_WARN, result,
+				    "fail to pwrite %ld-%ld of mirror %u",
+				    pos, count, id);
 			break;
 		}
 
@@ -195,8 +201,11 @@ int llapi_mirror_truncate(int fd, unsigned int id, off_t length)
 		return rc;
 
 	rc = ftruncate(fd, length);
-	if (rc < 0)
+	if (rc < 0) {
 		rc = -errno;
+		llapi_error(LLAPI_MSG_WARN, rc,
+			    "fail to ftruncate mirror %u to %ld", id, length);
+	}
 
 	(void) llapi_mirror_clear(fd);
 
@@ -353,6 +362,9 @@ ssize_t llapi_mirror_copy_many(int fd, __u16 src, __u16 *dst, size_t count)
 		} else if (bytes_read < 0) {
 			result = bytes_read;
 			nr = 0;
+			llapi_error(LLAPI_MSG_ERROR, result,
+				    "error reading bytes %ld-%ld of mirror %u",
+				    pos, to_read, src);
 			break;
 		}
 
@@ -447,6 +459,9 @@ int llapi_mirror_copy(int fd, unsigned int src, unsigned int dst, off_t pos,
 			break;
 		} else if (bytes_read < 0) {
 			result = bytes_read;
+			llapi_error(LLAPI_MSG_ERROR, result,
+				    "error reading bytes %ld-%ld of mirror %u",
+				    pos, to_read, src);
 			break;
 		}
 
@@ -458,6 +473,9 @@ int llapi_mirror_copy(int fd, unsigned int src, unsigned int dst, off_t pos,
 						    pos);
 		if (bytes_written < 0) {
 			result = bytes_written;
+			llapi_error(LLAPI_MSG_ERROR, result,
+				    "error writing bytes %ld-%ld of mirror %u",
+				    pos, to_write, dst);
 			break;
 		}
 
@@ -474,8 +492,12 @@ int llapi_mirror_copy(int fd, unsigned int src, unsigned int dst, off_t pos,
 
 	if (result > 0 && pos & (page_size - 1)) {
 		rc = llapi_mirror_truncate(fd, dst, pos);
-		if (rc < 0)
+		if (rc < 0) {
+			llapi_error(LLAPI_MSG_ERROR, result,
+				    "error truncating mirror %u to %ld",
+				    dst, pos);
 			result = rc;
+		}
 	}
 
 	return result;

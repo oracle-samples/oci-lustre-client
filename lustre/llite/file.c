@@ -2029,7 +2029,7 @@ static int file_read_confine_iter(struct lu_env *env, struct kiocb *iocb,
 	if (kms > 0 && (iocb->ki_pos >= kms || read_end > kms)) {
 		rc = ll_glimpse_size(inode);
 		if (rc != 0)
-			return rc;
+			RETURN(rc);
 
 		size = i_size_read(inode);
 		if (iocb->ki_pos >= size || read_end > size) {

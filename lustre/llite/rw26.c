@@ -487,7 +487,7 @@ ll_direct_IO_impl(struct kiocb *iocb, struct iov_iter *iter, int rw)
 	if (file_offset & ~PAGE_MASK)
 		unaligned = true;
 
-	if (count & ~PAGE_MASK)
+	if ((file_offset + count < i_size_read(inode)) && (count & ~PAGE_MASK))
 		unaligned = true;
 
 	/* Check that all user buffers are aligned as well */
