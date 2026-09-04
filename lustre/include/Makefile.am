@@ -95,4 +95,5 @@ EXTRA_DIST = \
 	range_lock.h \
 	upcall_cache.h \
 	lustre_kernelcomm.h \
-	seq_range.h
+	seq_range.h \
+	lustre_ioctl_old.h
