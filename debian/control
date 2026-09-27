@@ -12,7 +12,7 @@ Package: lustre-source
 Section: admin
 Architecture: all
 Priority: optional
-Depends: module-assistant, bzip2, debhelper (>= 11), libtool, libyaml-dev, libnl-genl-3-dev, libselinux-dev, libsnmp-dev, mpi-default-dev, dpatch, pkg-config
+Depends: module-assistant, bzip2, debhelper (>= 11), libtool, libyaml-dev, libnl-genl-3-dev, libselinux-dev, libsnmp-dev, mpi-default-dev, pkg-config
 Description: source for Lustre filesystem client kernel modules
  Lustre is a scalable, secure, robust, highly-available cluster file system.
  This release is maintained by Whamcloud and available from

@@ -560,7 +560,7 @@ binary-modules: prep-deb-files
 clean:
 	dh_testdir
 	dh_testroot
-	dpatch deapply-all -v
+	if command -v dpatch >/dev/null 2>&1; then dpatch deapply-all -v; fi
 	-$(MAKE) distclean
 	rm -rf  debian/substvars debian/*.bak debian/*~ *~  *-stamp
 	ls -d debian/lustre-*-modules-* | grep -v _KVERS_ | grep -v dkms | xargs rm -f || true
@@ -575,11 +575,11 @@ clean:
 
 patch: patch-stamp
 patch-stamp:
-	dpatch apply-all -v
+	if command -v dpatch >/dev/null 2>&1; then dpatch apply-all -v; fi
 	touch $@
 
 unpatch:
-	dpatch deapply-all -v
+	if command -v dpatch >/dev/null 2>&1; then dpatch deapply-all -v; fi
 	rm -rf debian/patched patch-stamp
 
 .PHONY: binary-arch clean source diff  binary binary-indep binary-arch install configure
