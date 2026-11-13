@@ -36,7 +36,6 @@
 #include <linux/quota.h>
 #include <linux/quotaops.h>
 #include <linux/sort.h>
-#include <dt_object.h>
 #include <lustre_fid.h>
 #include <lustre_dlm.h>
 
@@ -48,6 +47,8 @@
 #define MAX_DQ_TIME  604800     /* (7*24*60*60) 1 week */
 #endif
 
+struct dt_device;
+struct dt_index_features;
 struct lquota_id_info;
 struct lquota_trans;
 
