@@ -3351,8 +3351,8 @@ run_test 152 "QoS object allocation could be awakened in case of OST failover"
 
 test_170() {
 	remote_ost_nodsh && skip "remote OST with nodsh"
-	(( "$OST1_VERSION" >= $(version_code 2.17.53) )) ||
-		skip "Need OST version at least 2.17.53"
+	(( "$OST1_VERSION" >= $(version_code 2.15.5) )) ||
+		skip "Need OST version at least 2.15.5"
 	[[ $(facet_host client) != $(facet_host ost1) ]] ||
 		skip "need ost1 and client on different nodes"
 	local num_files=20
