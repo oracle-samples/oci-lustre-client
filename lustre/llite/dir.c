@@ -55,6 +55,7 @@
 #include <lustre_fid.h>
 #include <lustre_kernelcomm.h>
 #include <lustre_swab.h>
+#include <lustre_quota.h>
 #include <libcfs/libcfs_crypto.h>
 
 #include "llite_internal.h"
@@ -685,27 +686,23 @@ int ll_dir_setstripe(struct inode *inode, struct lov_user_md *lump,
 	RETURN(rc);
 }
 
-static int ll_dir_get_default_layout(struct inode *inode, void **plmm,
-				     int *plmm_size,
-				     struct ptlrpc_request **request, u64 valid,
-				     enum get_default_layout_type type)
+int ll_dir_get_default_layout(struct inode *inode, void **plmm, int *plmm_size,
+			      struct ptlrpc_request **request, u64 valid,
+			      enum get_default_layout_type type)
 {
 	struct ll_sb_info *sbi = ll_i2sbi(inode);
 	struct mdt_body   *body;
 	struct lov_mds_md *lmm = NULL;
 	struct ptlrpc_request *req = NULL;
-	int rc, lmm_size;
+	int lmm_size = OBD_MAX_DEFAULT_EA_SIZE;
 	struct md_op_data *op_data;
 	struct lu_fid fid;
+	int rc;
+
 	ENTRY;
 
-	rc = ll_get_default_mdsize(sbi, &lmm_size);
-	if (rc)
-		RETURN(rc);
-
-	op_data = ll_prep_md_op_data(NULL, inode, NULL, NULL,
-				     0, lmm_size, LUSTRE_OPC_ANY,
-				     NULL);
+	op_data = ll_prep_md_op_data(NULL, inode, NULL, NULL, 0, lmm_size,
+				     LUSTRE_OPC_ANY, NULL);
 	if (IS_ERR(op_data))
 		RETURN(PTR_ERR(op_data));
 
@@ -1185,6 +1182,408 @@ static int check_owner(int type, int id)
 	return 0;
 }
 
+struct kmem_cache *quota_iter_slab;
+static DEFINE_MUTEX(quotactl_iter_lock);
+
+struct ll_quotactl_iter_list {
+	__u64		 lqil_mark;	 /* iter identifier */
+	__u32		 lqil_flags;	 /* what has been done */
+	pid_t		 lqil_pid;	 /* debug calling task */
+	time64_t	 lqil_iter_time; /* the time to iter */
+	struct list_head lqil_sbi_list;	 /* list on ll_sb_info */
+	struct list_head lqil_quotactl_iter_list; /* list of quota iters */
+};
+
+void ll_quota_iter_check_and_cleanup(struct ll_sb_info *sbi, bool check)
+{
+	struct if_quotactl_iter *iter_rec = NULL;
+	struct ll_quotactl_iter_list *tmp, *ll_iter = NULL;
+
+	if (!check)
+		mutex_lock(&quotactl_iter_lock);
+
+	list_for_each_entry_safe(ll_iter, tmp, &sbi->ll_all_quota_list,
+				 lqil_sbi_list) {
+		if (check &&
+		    ll_iter->lqil_iter_time > (ktime_get_seconds() - 86400))
+			continue;
+
+		while ((iter_rec = list_first_entry_or_null(
+					&ll_iter->lqil_quotactl_iter_list,
+					struct if_quotactl_iter,
+					qci_link)) != NULL) {
+			list_del_init(&iter_rec->qci_link);
+			OBD_SLAB_FREE_PTR(iter_rec, quota_iter_slab);
+		}
+
+		list_del_init(&ll_iter->lqil_sbi_list);
+		OBD_FREE_PTR(ll_iter);
+	}
+
+	if (!check)
+		mutex_unlock(&quotactl_iter_lock);
+}
+
+/* iterate the quota usage from all QSDs */
+static int quotactl_iter_acct(struct list_head *quota_list, void *buffer,
+			      __u64 size, __u64 *count, __u32 qtype, bool is_md)
+{
+	struct if_quotactl_iter *tmp, *iter = NULL;
+	struct lquota_acct_rec *acct;
+	__u64 qid, cur = 0;
+	int rc = 0;
+
+	ENTRY;
+
+	while (cur < size) {
+		if ((size - cur) <
+		    (sizeof(qid) + sizeof(*acct))) {
+			rc = -EPROTO;
+			break;
+		}
+
+		qid = *((__u64 *)(buffer + cur));
+		cur += sizeof(qid);
+		acct = (struct lquota_acct_rec *)(buffer + cur);
+		cur += sizeof(*acct);
+
+		iter = NULL;
+		list_for_each_entry(tmp, quota_list, qci_link) {
+			if (tmp->qci_qc.qc_id == (__u32)qid) {
+				iter = tmp;
+				break;
+			}
+		}
+
+		if (iter == NULL) {
+			CDEBUG(D_QUOTA, "can't find the iter record for %llu\n",
+			       qid);
+
+			if (qid != 0)
+				continue;
+
+			OBD_SLAB_ALLOC_PTR(iter, quota_iter_slab);
+			if (iter == NULL) {
+				rc = -ENOMEM;
+				break;
+			}
+
+			INIT_LIST_HEAD(&iter->qci_link);
+			iter->qci_qc.qc_id = 0;
+			iter->qci_qc.qc_type = qtype;
+			(*count)++;
+
+			list_add(&iter->qci_link, quota_list);
+		}
+
+		if (is_md) {
+			iter->qci_qc.qc_dqblk.dqb_valid |= QIF_INODES;
+			iter->qci_qc.qc_dqblk.dqb_curinodes += acct->ispace;
+			iter->qci_qc.qc_dqblk.dqb_curspace += acct->bspace;
+		} else {
+			iter->qci_qc.qc_dqblk.dqb_valid |= QIF_SPACE;
+			iter->qci_qc.qc_dqblk.dqb_curspace += acct->bspace;
+		}
+	}
+
+	RETURN(rc);
+}
+
+/* iterate all quota settings from QMT */
+static int quotactl_iter_glb(struct list_head *quota_list, void *buffer,
+			     __u64 size, __u64 *count, __u32 qtype, bool is_md)
+{
+	struct if_quotactl_iter *tmp, *iter = NULL;
+	struct lquota_glb_rec *glb;
+	__u64 qid, cur = 0;
+	bool inserted = false;
+	int rc = 0;
+
+	ENTRY;
+
+	while (cur < size) {
+		if ((size - cur) <
+		    (sizeof(qid) + sizeof(*glb))) {
+			rc = -EPROTO;
+			break;
+		}
+
+		qid = *((__u64 *)(buffer + cur));
+		cur += sizeof(qid);
+		glb = (struct lquota_glb_rec *)(buffer + cur);
+		cur += sizeof(*glb);
+
+		iter = NULL;
+		list_for_each_entry(tmp, quota_list, qci_link) {
+			if (tmp->qci_qc.qc_id == (__u32)qid) {
+				iter = tmp;
+				break;
+			}
+		}
+
+		if (iter == NULL) {
+			OBD_SLAB_ALLOC_PTR(iter, quota_iter_slab);
+			if (iter == NULL) {
+				rc = -ENOMEM;
+				break;
+			}
+
+			INIT_LIST_HEAD(&iter->qci_link);
+
+			inserted = false;
+			list_for_each_entry(tmp, quota_list, qci_link) {
+				if (tmp->qci_qc.qc_id < qid)
+					continue;
+
+				inserted = true;
+				list_add_tail(&iter->qci_link,
+					      &tmp->qci_link);
+				break;
+			}
+
+			if (!inserted)
+				list_add_tail(&iter->qci_link, quota_list);
+
+			iter->qci_qc.qc_type = qtype;
+			iter->qci_qc.qc_id = (__u32)qid;
+			(*count)++;
+		}
+
+		if (is_md) {
+			iter->qci_qc.qc_dqblk.dqb_valid |= QIF_ILIMITS;
+			iter->qci_qc.qc_dqblk.dqb_ihardlimit =
+							     glb->qbr_hardlimit;
+			iter->qci_qc.qc_dqblk.dqb_isoftlimit =
+							     glb->qbr_softlimit;
+			iter->qci_qc.qc_dqblk.dqb_itime = glb->qbr_time;
+		} else {
+			iter->qci_qc.qc_dqblk.dqb_valid |= QIF_BLIMITS;
+			iter->qci_qc.qc_dqblk.dqb_bhardlimit =
+							     glb->qbr_hardlimit;
+			iter->qci_qc.qc_dqblk.dqb_bsoftlimit =
+							     glb->qbr_softlimit;
+			iter->qci_qc.qc_dqblk.dqb_btime = glb->qbr_time;
+		}
+	}
+
+	RETURN(rc);
+}
+
+/* iterate the quota setting from QMT and all QSDs to get the quota information
+ * for all users or groups
+ **/
+static int quotactl_iter(struct ll_sb_info *sbi, struct if_quotactl *qctl)
+{
+	struct list_head iter_quota_glb_list;
+	struct list_head iter_obd_quota_md_list;
+	struct list_head iter_obd_quota_dt_list;
+	struct ll_quotactl_iter_list *ll_iter;
+	struct lquota_iter *iter;
+	struct obd_quotactl *oqctl;
+	__u64 count;
+	int rc = 0;
+
+	ENTRY;
+
+	OBD_ALLOC_PTR(ll_iter);
+	if (ll_iter == NULL)
+		RETURN(-ENOMEM);
+
+	INIT_LIST_HEAD(&ll_iter->lqil_sbi_list);
+	INIT_LIST_HEAD(&ll_iter->lqil_quotactl_iter_list);
+
+	mutex_lock(&quotactl_iter_lock);
+
+	if (!list_empty(&sbi->ll_all_quota_list))
+		ll_quota_iter_check_and_cleanup(sbi, true);
+
+	INIT_LIST_HEAD(&iter_quota_glb_list);
+	INIT_LIST_HEAD(&iter_obd_quota_md_list);
+	INIT_LIST_HEAD(&iter_obd_quota_dt_list);
+
+	OBD_ALLOC_PTR(oqctl);
+	if (oqctl == NULL)
+		GOTO(out, rc = -ENOMEM);
+
+	QCTL_COPY(oqctl, qctl);
+	oqctl->qc_iter_list = (__u64)&iter_quota_glb_list;
+	rc = obd_quotactl(sbi->ll_md_exp, oqctl);
+	if (rc)
+		GOTO(cleanup, rc);
+
+	QCTL_COPY(oqctl, qctl);
+	oqctl->qc_cmd = LUSTRE_Q_ITEROQUOTA;
+	oqctl->qc_iter_list = (__u64)&iter_obd_quota_md_list;
+	rc = obd_quotactl(sbi->ll_md_exp, oqctl);
+	if (rc)
+		GOTO(cleanup, rc);
+
+	QCTL_COPY(oqctl, qctl);
+	oqctl->qc_cmd = LUSTRE_Q_ITEROQUOTA;
+	oqctl->qc_iter_list = (__u64)&iter_obd_quota_dt_list;
+	rc = obd_quotactl(sbi->ll_dt_exp, oqctl);
+	if (rc)
+		GOTO(cleanup, rc);
+
+	count = 0;
+	while ((iter = list_first_entry_or_null(&iter_quota_glb_list,
+						struct lquota_iter, li_link))) {
+		void *buffer;
+
+		buffer = iter->li_buffer;
+		rc = quotactl_iter_glb(&ll_iter->lqil_quotactl_iter_list,
+				       buffer, iter->li_md_size, &count,
+				       oqctl->qc_type, true);
+		if (rc)
+			GOTO(cleanup, rc);
+
+		buffer = iter->li_buffer + LQUOTA_ITER_BUFLEN / 2;
+		rc = quotactl_iter_glb(&ll_iter->lqil_quotactl_iter_list,
+				       buffer, iter->li_dt_size, &count,
+				       oqctl->qc_type,  false);
+
+		if (rc)
+			GOTO(cleanup, rc);
+
+		list_del_init(&iter->li_link);
+		OBD_FREE_LARGE(iter,
+			       sizeof(struct lquota_iter) + LQUOTA_ITER_BUFLEN);
+	}
+
+	while ((iter = list_first_entry_or_null(&iter_obd_quota_md_list,
+						struct lquota_iter, li_link))) {
+		rc = quotactl_iter_acct(&ll_iter->lqil_quotactl_iter_list,
+					iter->li_buffer, iter->li_md_size,
+					&count, oqctl->qc_type, true);
+		if (rc)
+			GOTO(cleanup, rc);
+
+		list_del_init(&iter->li_link);
+		OBD_FREE_LARGE(iter,
+			       sizeof(struct lquota_iter) + LQUOTA_ITER_BUFLEN);
+	}
+
+	while ((iter = list_first_entry_or_null(&iter_obd_quota_dt_list,
+						struct lquota_iter, li_link))) {
+		rc = quotactl_iter_acct(&ll_iter->lqil_quotactl_iter_list,
+					iter->li_buffer, iter->li_dt_size,
+					&count, oqctl->qc_type, false);
+		if (rc)
+			GOTO(cleanup, rc);
+
+		list_del_init(&iter->li_link);
+		OBD_FREE_LARGE(iter,
+			       sizeof(struct lquota_iter) + LQUOTA_ITER_BUFLEN);
+	}
+
+	ll_iter->lqil_mark = ((__u64)current->pid << 32) |
+			     ((__u32)qctl->qc_type << 8) |
+			     (ktime_get_seconds() & 0xFFFFFF);
+	ll_iter->lqil_flags = qctl->qc_type;
+	ll_iter->lqil_pid = current->pid;
+	ll_iter->lqil_iter_time = ktime_get_seconds();
+
+	list_add(&ll_iter->lqil_sbi_list, &sbi->ll_all_quota_list);
+
+	qctl->qc_allquota_count = count;
+	qctl->qc_allquota_mark = ll_iter->lqil_mark;
+	GOTO(out, rc);
+
+cleanup:
+	ll_quota_iter_check_and_cleanup(sbi, true);
+
+	while ((iter = list_first_entry_or_null(&iter_quota_glb_list,
+						struct lquota_iter, li_link))) {
+		list_del_init(&iter->li_link);
+		OBD_FREE_LARGE(iter,
+			       sizeof(struct lquota_iter) + LQUOTA_ITER_BUFLEN);
+	}
+
+	while ((iter = list_first_entry_or_null(&iter_obd_quota_md_list,
+						struct lquota_iter, li_link))) {
+		list_del_init(&iter->li_link);
+		OBD_FREE_LARGE(iter,
+			       sizeof(struct lquota_iter) + LQUOTA_ITER_BUFLEN);
+	}
+
+	while ((iter = list_first_entry_or_null(&iter_obd_quota_dt_list,
+						struct lquota_iter, li_link))) {
+		list_del_init(&iter->li_link);
+		OBD_FREE_LARGE(iter,
+			       sizeof(struct lquota_iter) + LQUOTA_ITER_BUFLEN);
+	}
+
+	OBD_FREE_PTR(ll_iter);
+
+out:
+	OBD_FREE_PTR(oqctl);
+
+	mutex_unlock(&quotactl_iter_lock);
+	RETURN(rc);
+}
+
+static int quotactl_getallquota(struct ll_sb_info *sbi,
+				struct if_quotactl *qctl)
+{
+	struct ll_quotactl_iter_list *ll_iter = NULL;
+	struct if_quotactl_iter *iter = NULL;
+	void __user *buffer = (void __user *)qctl->qc_allquota_buffer;
+	__u64 cur = 0, count = qctl->qc_allquota_buflen;
+	bool found = false;
+	int rc = 0;
+
+	ENTRY;
+
+	mutex_lock(&quotactl_iter_lock);
+
+	list_for_each_entry(ll_iter, &sbi->ll_all_quota_list, lqil_sbi_list) {
+		if (qctl->qc_allquota_mark == ll_iter->lqil_mark) {
+			found = true;
+			break;
+		}
+	}
+
+	if (!found) {
+		mutex_unlock(&quotactl_iter_lock);
+		RETURN(-EBUSY);
+	}
+
+	while ((iter = list_first_entry_or_null(
+					&ll_iter->lqil_quotactl_iter_list,
+					struct if_quotactl_iter, qci_link))) {
+		if (count - cur < sizeof(struct if_quotactl)) {
+			rc = -ERANGE;
+			break;
+		}
+
+		if (copy_to_user(buffer + cur, &iter->qci_qc,
+				 sizeof(struct if_quotactl))) {
+			rc = -EFAULT;
+			break;
+		}
+
+		cur += sizeof(struct if_quotactl);
+
+		list_del_init(&iter->qci_link);
+		OBD_SLAB_FREE_PTR(iter, quota_iter_slab);
+	}
+
+	/* cleanup in case of error */
+	while ((iter = list_first_entry_or_null(
+					&ll_iter->lqil_quotactl_iter_list,
+					struct if_quotactl_iter, qci_link))) {
+		list_del_init(&iter->qci_link);
+		OBD_SLAB_FREE_PTR(iter, quota_iter_slab);
+	}
+
+	list_del_init(&ll_iter->lqil_sbi_list);
+	OBD_FREE_PTR(ll_iter);
+
+	mutex_unlock(&quotactl_iter_lock);
+
+	RETURN(rc);
+}
+
 int quotactl_ioctl(struct super_block *sb, struct if_quotactl *qctl)
 {
 	struct ll_sb_info *sbi = ll_s2sbi(sb);
@@ -1214,6 +1613,8 @@ int quotactl_ioctl(struct super_block *sb, struct if_quotactl *qctl)
 	case LUSTRE_Q_GETDEFAULT:
 	case LUSTRE_Q_GETQUOTAPOOL:
 	case LUSTRE_Q_GETDEFAULT_POOL:
+	case LUSTRE_Q_ITERQUOTA:
+	case LUSTRE_Q_GETALLQUOTA:
 		if (check_owner(type, id) &&
 		    (!capable(CAP_SYS_ADMIN)))
 			RETURN(-EPERM);
@@ -1226,7 +1627,11 @@ int quotactl_ioctl(struct super_block *sb, struct if_quotactl *qctl)
 		RETURN(-ENOTSUPP);
 	}
 
-	if (valid != QC_GENERAL) {
+	if (cmd == LUSTRE_Q_ITERQUOTA) {
+		rc = quotactl_iter(sbi, qctl);
+	} else if (cmd == LUSTRE_Q_GETALLQUOTA) {
+		rc = quotactl_getallquota(sbi, qctl);
+	} else if (valid != QC_GENERAL) {
 		if (cmd == Q_GETINFO)
 			qctl->qc_cmd = Q_GETOINFO;
 		else if (cmd == Q_GETQUOTA ||
@@ -1620,33 +2025,51 @@ out:
 
 				lum = (struct lmv_user_md *)lmm;
 				lli = ll_i2info(inode);
-				if (lum->lum_max_inherit == LMV_INHERIT_NONE ||
-				    (lum->lum_max_inherit > 0 &&
-				     lum->lum_max_inherit < lli->lli_dir_depth))
-					GOTO(finish_req, rc = -ENODATA);
+				if (lum->lum_max_inherit !=
+				    LMV_INHERIT_UNLIMITED) {
+					if (lum->lum_max_inherit ==
+						LMV_INHERIT_NONE ||
+					    lum->lum_max_inherit <
+						LMV_INHERIT_END ||
+					    lum->lum_max_inherit >
+						LMV_INHERIT_MAX ||
+					    lum->lum_max_inherit <
+						lli->lli_dir_depth)
+						GOTO(finish_req, rc = -ENODATA);
 
-				if (lum->lum_max_inherit ==
-				    lli->lli_dir_depth) {
-					lum->lum_max_inherit = LMV_INHERIT_NONE;
-					lum->lum_max_inherit_rr =
-						LMV_INHERIT_RR_NONE;
-					goto out_copy;
-				}
-				if (lum->lum_max_inherit > lli->lli_dir_depth &&
-				    lum->lum_max_inherit <= LMV_INHERIT_MAX)
+					if (lum->lum_max_inherit ==
+					    lli->lli_dir_depth) {
+						lum->lum_max_inherit =
+							LMV_INHERIT_NONE;
+						lum->lum_max_inherit_rr =
+							LMV_INHERIT_RR_NONE;
+						goto out_copy;
+					}
+
 					lum->lum_max_inherit -=
 						lli->lli_dir_depth;
+				}
 
-				if (lum->lum_max_inherit_rr >
-					lli->lli_dir_depth &&
-				    lum->lum_max_inherit_rr <=
-					LMV_INHERIT_RR_MAX)
-					lum->lum_max_inherit_rr -=
-						lli->lli_dir_depth;
-				else if (lum->lum_max_inherit_rr ==
+				if (lum->lum_max_inherit_rr !=
+					LMV_INHERIT_RR_UNLIMITED) {
+					if (lum->lum_max_inherit_rr ==
+						LMV_INHERIT_NONE ||
+					    lum->lum_max_inherit_rr <
+						LMV_INHERIT_RR_END ||
+					    lum->lum_max_inherit_rr >
+						LMV_INHERIT_RR_MAX ||
+					    lum->lum_max_inherit_rr <=
+						lli->lli_dir_depth) {
+						lum->lum_max_inherit_rr =
+							LMV_INHERIT_RR_NONE;
+						goto out_copy;
+					}
+
+					if (lum->lum_max_inherit_rr >
 						lli->lli_dir_depth)
-					lum->lum_max_inherit_rr =
-						LMV_INHERIT_RR_NONE;
+						lum->lum_max_inherit_rr -=
+							lli->lli_dir_depth;
+				}
 			}
 out_copy:
 			if (copy_to_user(ulmv, lmm, lmmsize))

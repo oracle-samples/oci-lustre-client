@@ -32,6 +32,31 @@
 
 #include "qmt_internal.h"
 
+static void qmt_work_lvbo_free(struct work_struct *work)
+{
+	struct lqe_glbl_data *lgd;
+	struct lquota_entry *lqe;
+
+	lqe = container_of(work, struct lquota_entry, lqe_work);
+	mutex_lock(&lqe->lqe_glbl_data_lock);
+	lgd = lqe->lqe_glbl_data;
+	lqe->lqe_glbl_data = NULL;
+	mutex_unlock(&lqe->lqe_glbl_data_lock);
+	qmt_free_lqe_gd(lgd);
+
+	if (unlikely(lgd == NULL)) {
+		struct qmt_pool_info *pool;
+
+		pool = (struct qmt_pool_info *)lqe->lqe_site->lqs_parent;
+		CWARN("%s: lvbo for (id=%llx) not fully inited\n",
+		      pool->qpi_qmt->qmt_svname,
+		      lqe->lqe_id.qid_uid);
+	}
+
+	/* release lqe reference */
+	lqe_putref(lqe);
+}
+
 /*
  * Initialize qmt-specific fields of quota entry.
  *
@@ -45,6 +70,7 @@ static void qmt_lqe_init(struct lquota_entry *lqe, void *arg)
 	lqe->lqe_revoke_time = 0;
 	init_rwsem(&lqe->lqe_sem);
 	mutex_init(&lqe->lqe_glbl_data_lock);
+	INIT_WORK(&lqe->lqe_work, qmt_work_lvbo_free);
 }
 
 /* Apply the default quota setting to the specified quota entry
@@ -846,7 +872,7 @@ bool qmt_adjust_edquot_qunit_notify(const struct lu_env *env,
 		mutex_lock(&lqe_gl->lqe_glbl_data_lock);
 		if (lqe_gl->lqe_glbl_data)
 			qmt_seed_glbe_all(env, lqe_gl->lqe_glbl_data, qunit,
-					  edquot);
+					  edquot, false);
 		mutex_unlock(&lqe_gl->lqe_glbl_data_lock);
 
 		qmt_id_lock_notify(qmt, lqe_gl);
@@ -898,7 +924,7 @@ void qmt_revalidate_lqes(const struct lu_env *env,
 
 	mutex_lock(&lqe_gl->lqe_glbl_data_lock);
 	if (lqe_gl->lqe_glbl_data)
-		qmt_seed_glbe(env, lqe_gl->lqe_glbl_data);
+		qmt_seed_glbe(env, lqe_gl->lqe_glbl_data, false);
 	mutex_unlock(&lqe_gl->lqe_glbl_data_lock);
 
 	qmt_id_lock_notify(qmt, lqe_gl);
@@ -1096,7 +1122,7 @@ void qmt_free_lqe_gd(struct lqe_glbl_data *lgd)
 }
 
 void qmt_seed_glbe_all(const struct lu_env *env, struct lqe_glbl_data *lgd,
-		       bool qunit, bool edquot)
+		       bool qunit, bool edquot, bool pool_locked)
 {
 	struct rw_semaphore	*sem = NULL;
 	struct qmt_pool_info	*qpi;
@@ -1137,7 +1163,8 @@ void qmt_seed_glbe_all(const struct lu_env *env, struct lqe_glbl_data *lgd,
 			slaves_cnt = lgd->lqeg_num_alloc;
 		} else {
 			sem = qmt_sarr_rwsem(qpi);
-			down_read(sem);
+			if (!pool_locked)
+				down_read(sem);
 			slaves_cnt = qmt_sarr_count(qpi);
 		}
 
@@ -1201,7 +1228,7 @@ qunit_lbl:
 			}
 		}
 
-		if (!qmt_pool_global(qpi))
+		if (!qmt_pool_global(qpi) && !pool_locked)
 			up_read(sem);
 	}
 	/* TODO: only for debug purposes - remove it later */
@@ -1240,7 +1267,7 @@ void qmt_setup_lqe_gd(const struct lu_env *env, struct qmt_device *qmt,
 
 	qmt_pool_lqes_lookup_spec(env, qmt, pool_type,
 				  lqe_qtype(lqe), &lqe->lqe_id);
-	qmt_seed_glbe(env, lgd);
+	qmt_seed_glbe(env, lgd, false);
 
 	lqe->lqe_glbl_data = lgd;
 	qmt_id_lock_notify(qmt, lqe);

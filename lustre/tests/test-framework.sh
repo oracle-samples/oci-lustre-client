@@ -7926,6 +7926,7 @@ wait_clients_import_state () {
 	local list="$1"
 	local facet="$2"
 	local expected="$3"
+	local maxtime=${4:-$(max_recovery_time)}
 	local facets="$facet"
 
 	if [ "$FAILURE_MODE" = HARD ]; then
@@ -7948,7 +7949,7 @@ wait_clients_import_state () {
 		local params=$(expand_list $params $proc_path)
 	done
 
-	if ! do_rpc_nodes "$list" wait_import_state_mount "$expected" $params;
+	if ! do_rpc_nodes "$list" wait_import_state_mount "$expected" $params $maxtime 0;
 	then
 		error "import is not in ${expected} state"
 		return 1

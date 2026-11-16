@@ -100,7 +100,13 @@ static int tgt_mdt_body_unpack(struct tgt_session_info *tsi, __u32 flags)
 			     &tsi->tsi_tgt->lut_bottom->dd_lu_dev,
 			     &body->mbo_fid1, NULL);
 	if (!IS_ERR(obj)) {
-		if ((flags & HAS_BODY) && !lu_object_exists(obj)) {
+		/*
+		 * Reject a non-MD object regardless of HAS_BODY: any handler
+		 * whose format carries an MDT_BODY can reach
+		 * mdt_obj(tsi_corpus) via tsi2mdt_info() (e.g. MDS_RMFID).
+		 */
+		if (!lu_object_is_md(obj) ||
+		    ((flags & HAS_BODY) && !lu_object_exists(obj))) {
 			lu_object_put(tsi->tsi_env, obj);
 			rc = -ENOENT;
 		} else {
@@ -459,6 +465,12 @@ static int tgt_handle_request0(struct tgt_session_info *tsi,
 					  RCL_SERVER))
 			req_capsule_set_size(tsi->tsi_pill, &RMF_FILE_ENCCTX,
 					     RCL_SERVER, 0);
+
+		if (req_capsule_has_field(tsi->tsi_pill, &RMF_OBD_QUOTA_ITER,
+					  RCL_SERVER)) {
+			req_capsule_set_size(tsi->tsi_pill,
+					    &RMF_OBD_QUOTA_ITER, RCL_SERVER, 0);
+		}
 
 		rc = req_capsule_server_pack(tsi->tsi_pill);
 	}

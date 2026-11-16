@@ -846,6 +846,50 @@ test_17q() {
 }
 run_test 17q "set large xattr on fast symlink"
 
+test_17r() {
+	(( $MDS1_VERSION >= $(version_code 2.15.8) )) ||
+		skip "Need MDS with LU-20815 symlink lock on open"
+	$LCTL get_param llite.*.opencache_threshold_count ||
+		skip "client does not have opencache parameter"
+
+	local link=$DIR/$tdir/$tfile.lnk
+	local direct
+	local linked
+
+	# no MDS_OPEN_LOCK, so every open of the target sends one open RPC,
+	# and only an open of the symlink itself can add more
+	set_opencache 0
+	stack_trap "restore_opencache"
+
+	test_mkdir $DIR/$tdir
+	touch $DIR/$tdir/$tfile || error "touch $DIR/$tdir/$tfile failed"
+	ln -s $tfile $link || error "ln -s $tfile $link failed"
+	cancel_lru_locks mdc
+
+	# warm up, cache the symlink lock
+	$MULTIOP $link oc || error "multiop $link failed"
+
+	$LCTL set_param mdc.*.stats=clear
+	for i in {1..10}; do
+		$MULTIOP $DIR/$tdir/$tfile oc ||
+			error "multiop $DIR/$tdir/$tfile failed"
+	done
+	direct=$(calc_stats mdc.*.stats ldlm_ibits_enqueue)
+
+	$LCTL set_param mdc.*.stats=clear
+	for i in {1..10}; do
+		$MULTIOP $link oc || error "multiop $link failed"
+	done
+	linked=$(calc_stats mdc.*.stats ldlm_ibits_enqueue)
+
+	echo "10 opens: $direct enqueue RPCs direct, $linked through symlink"
+	(( ${direct:-0} >= 10 )) ||
+		error "only ${direct:-0} enqueue RPCs for 10 direct opens"
+	(( ${linked:-0} <= ${direct:-0} )) ||
+		error "symlink opens sent $linked RPCs, direct opens $direct"
+}
+run_test 17r "repeated open of symlink does not send open RPC for it"
+
 test_18() {
 	touch $DIR/$tfile || error "Failed to touch $DIR/$tfile: $?"
 	ls $DIR || error "Failed to ls $DIR: $?"
@@ -16424,6 +16468,29 @@ test_154g()
 }
 run_test 154g "various llapi FID tests"
 
+test_154k() {
+	(( $MDS1_VERSION >= $(version_code 2.15.8) )) ||
+		skip "Need MDS with LU-15533 non-MD getattr fix"
+	[ "$mds1_FSTYPE" = "zfs" ] ||
+		skip "internal OI-scrub FID only exists on osd-zfs"
+
+	# LU-15533: getattr of the OI scrub tracker, an OSD-internal object
+	# with no MDD slice, must return an error instead of an MDS LBUG.
+	# The FLD maps all IGIF sequences to MDT0000, hence oid 0x1 only.
+	local fid="[0xffffffff:0x1:0x0]"
+
+	echo "getattr internal FID $fid"
+	stat "$MOUNT/.lustre/fid/$fid" &&
+		error "stat of internal FID $fid should fail"
+	$LFS fid2path $MOUNT "$fid" &&
+		error "fid2path of internal FID $fid should fail"
+
+	# the regression: the MDS must still be alive
+	stat $MOUNT > /dev/null ||
+		error "MDS unresponsive after internal-FID getattr (LBUG?)"
+}
+run_test 154k "getattr of OSD-internal FID must not crash the MDS"
+
 test_155_small_load() {
     local temp=$TMP/$tfile
     local file=$DIR/$tfile
@@ -20424,7 +20491,7 @@ test_228b() {
 	start $SINGLEMDS $(facet_device $SINGLEMDS) $MDS_MOUNT_OPTS ||
 		error "Fail to start MDT."
 
-	df $MOUNT || error "Fail to df."
+	client_up || error "Fail to df."
 	# Create new files, idle OI blocks should be reused.
 	createmany -o $myDIR/t- 2000
 	do_facet $SINGLEMDS sync
@@ -22049,13 +22116,10 @@ test_247e() {
 run_test 247e "mount .. as fileset"
 
 test_247f() {
-	[ $MDSCOUNT -lt 2 ] && skip_env "needs >= 2 MDTs"
-	[ $MDS1_VERSION -lt $(version_code 2.13.52) ] &&
-		skip "Need at least version 2.13.52"
-	[ $CLIENT_VERSION -lt $(version_code 2.14.50) ] &&
-		skip "Need at least version 2.14.50"
-	lctl get_param -n mdc.$FSNAME-MDT0000*.import |
-		grep -q subtree ||
+	(( $MDSCOUNT > 1 )) || skip_env "needs >= 2 MDTs"
+	(( $MDS1_VERSION >= $(version_code 2.14.50.162) )) ||
+		skip "Need at least version 2.14.50.162"
+	lctl get_param -n mdc.$FSNAME-MDT0000*.import | grep -q subtree ||
 		skip "Fileset feature is not supported"
 
 	mkdir_on_mdt0 $DIR/$tdir || error "mkdir $tdir failed"
@@ -22073,71 +22137,74 @@ test_247f() {
 	stack_trap "rmdir $submount"
 
 	local dir
-	local stat
 	local fileset=$FILESET
 	local mdts=$(comma_list $(mdts_nodes))
 
-	stat=$(do_facet mds1 $LCTL get_param -n \
-		mdt.*MDT0000.enable_remote_subdir_mount)
-	stack_trap "do_nodes $mdts $LCTL set_param \
-		mdt.*.enable_remote_subdir_mount=$stat"
-
-	do_nodes $mdts "$LCTL set_param mdt.*.enable_remote_subdir_mount=0"
-	stack_trap "umount_client $submount"
-	stat=$(do_facet mds1 $LCTL get_param -n \
-		mdt.*MDT0000.enable_remote_subdir_mount)
-	# 2.16 always enables remote subdir mount
-	(( stat == 0 )) &&
-		FILESET="$fileset/$tdir/remote" mount_client $submount &&
-		error "mount remote dir $dir should fail"
-
-	for dir in $tdir/remote/subdir $tdir/striped $tdir/striped/subdir \
-		$tdir/striped/. ; do
+	do_nodes $mdts "$LCTL set_param mdt.*.enable_remote_subdir_mount=1"
+	for dir in $tdir/remote $tdir/remote/subdir $tdir/striped \
+		$tdir/striped/subdir $tdir/striped/.; do
 		FILESET="$fileset/$dir" mount_client $submount ||
 			error "mount $dir failed"
 		umount_client $submount
 	done
-
-	do_nodes $mdts "$LCTL set_param mdt.*.enable_remote_subdir_mount=1"
-	FILESET="$fileset/$tdir/remote" mount_client $submount ||
-		error "mount $tdir/remote failed"
 }
 run_test 247f "mount striped or remote directory as fileset"
 
-test_247g() {
-	[ $MDSCOUNT -lt 4 ] && skip_env "needs >= 4 MDTs"
-	[ $CLIENT_VERSION -lt $(version_code 2.14.50) ] &&
-		skip "Need at least version 2.14.50"
+test_subdir_mount_lock()
+{
+	local testdir=$1
+	local fileset=$FILESET
+	local submount=${MOUNT}_$(basename $testdir)
 
-	$LFS mkdir -i 0 -c 4 -H fnv_1a_64 $DIR/$tdir ||
-		error "mkdir $tdir failed"
-	touch $DIR/$tdir/$tfile || error "touch $tfile failed"
-
-	local submount=${MOUNT}_$tdir
+	touch $DIR/$testdir/$tfile || error "touch $tfile failed"
 
 	mkdir -p $submount || error "mkdir $submount failed"
 	stack_trap "rmdir $submount"
 
-	FILESET="$fileset/$tdir" mount_client $submount ||
-		error "mount $dir failed"
+	FILESET="$fileset/$testdir" mount_client $submount ||
+		error "mount $FILESET failed"
 	stack_trap "umount $submount"
 
 	local mdts=$(comma_list $(mdts_nodes))
 
 	local nrpcs
 
-	stat $submount > /dev/null
+	stat $submount > /dev/null || error "stat $submount failed"
 	cancel_lru_locks $MDC
-	stat $submount > /dev/null
-	stat $submount/$tfile > /dev/null
+	stat $submount > /dev/null || error "stat $submount failed"
+	stat $submount/$tfile > /dev/null || error "stat $tfile failed"
 	do_nodes $mdts "$LCTL set_param mdt.*.md_stats=clear > /dev/null"
-	stat $submount/$tfile > /dev/null
+	stat $submount/$tfile > /dev/null || error "stat $tfile failed"
 	nrpcs=$(do_nodes $mdts "lctl get_param -n mdt.*.md_stats" |
 		awk '/getattr/ {sum += $2} END {print sum}')
 
 	[ -z "$nrpcs" ] || error "$nrpcs extra getattr sent"
 }
-run_test 247g "mount striped directory as fileset caches ROOT lookup lock"
+
+test_247g() {
+	(( $MDSCOUNT >= 4 )) || skip_env "needs >= 4 MDTs"
+	(( $CLIENT_VERSION >= $(version_code 2.14.50) )) ||
+		skip "Need at least version 2.14.50"
+
+	$LFS mkdir -i 0 -c 4 -H fnv_1a_64 $DIR/$tdir ||
+		error "mkdir $tdir failed"
+	test_subdir_mount_lock $tdir
+}
+run_test 247g "striped directory submount revalidate ROOT from cache"
+
+test_247h() {
+	(( $MDSCOUNT > 1 )) || skip_env "needs > 1 MDTs"
+	(( $MDS1_VERSION >= $(version_code 2.15.51) )) ||
+		skip "Need MDS version at least 2.15.51"
+
+	$LFS mkdir -i 1 -c $MDSCOUNT $DIR/$tdir || error "mkdir $tdir failed"
+	test_subdir_mount_lock $tdir
+	mkdir_on_mdt -i 0 $DIR/$tdir/$tdir.0 || error "mkdir $tdir.0 failed"
+	mkdir_on_mdt -i 1 $DIR/$tdir/$tdir.0/$tdir.1 ||
+		error "mkdir $tdir.1 failed"
+	test_subdir_mount_lock $tdir/$tdir.0/$tdir.1
+}
+run_test 247h "remote directory submount revalidate ROOT from cache"
 
 test_248a() {
 	local fast_read_sav=$($LCTL get_param -n llite.*.fast_read 2>/dev/null)
@@ -27160,26 +27227,15 @@ test_413e() {
 }
 run_test 413e "check default max-inherit value"
 
-test_413f() {
-	(( MDSCOUNT >= 2 )) || skip "We need at least 2 MDTs for this test"
-
-	(( MDS1_VERSION >= $(version_code 2.14.55) )) ||
-		skip "Need server version at least 2.14.55"
-
-	getfattr -d -m trusted.dmv --absolute-names $DIR > $TMP/dmv.ea ||
-		error "dump $DIR default LMV failed"
-	stack_trap "setfattr --restore=$TMP/dmv.ea"
-
-	$LFS setdirstripe -D -i -1 -c 1 -X 3 --max-inherit-rr 3 $DIR ||
-		error "set $DIR default LMV failed"
-
+test_fs_dmv_inherit()
+{
 	local testdir=$DIR/$tdir
 
 	local count
 	local inherit
 	local inherit_rr
 
-	for i in $(seq 3); do
+	for i in 1 2 3; do
 		mkdir $testdir || error "mkdir $testdir failed"
 		count=$($LFS getdirstripe -D -c $testdir)
 		(( count == 1 )) ||
@@ -27198,7 +27254,56 @@ test_413f() {
 	(( count == 0 )) ||
 		error "$testdir default LMV count not zero: $count"
 }
+
+test_413f() {
+	(( MDSCOUNT >= 2 )) || skip "We need at least 2 MDTs for this test"
+
+	(( MDS1_VERSION >= $(version_code 2.14.55) )) ||
+		skip "Need server version at least 2.14.55"
+
+	getfattr -d -m trusted.dmv --absolute-names $DIR > $TMP/dmv.ea ||
+		error "dump $DIR default LMV failed"
+	stack_trap "setfattr --restore=$TMP/dmv.ea"
+
+	$LFS setdirstripe -D -i -1 -c 1 -X 3 --max-inherit-rr 3 $DIR ||
+		error "set $DIR default LMV failed"
+
+	test_fs_dmv_inherit
+}
 run_test 413f "lfs getdirstripe -D list ROOT default LMV if it's not set on dir"
+
+test_413g() {
+	(( MDSCOUNT >= 2 )) || skip "We need at least 2 MDTs for this test"
+
+	mkdir -p $DIR/$tdir/l2/l3/l4 || error "mkdir $tdir/l1/l2/l3 failed"
+	getfattr -d -m trusted.dmv --absolute-names $DIR > $TMP/dmv.ea ||
+		error "dump $DIR default LMV failed"
+	stack_trap "setfattr --restore=$TMP/dmv.ea"
+
+	$LFS setdirstripe -D -i -1 -c 1 -X 3 --max-inherit-rr 3 $DIR ||
+		error "set $DIR default LMV failed"
+
+	FILESET="$FILESET/$tdir/l2/l3/l4" mount_client $MOUNT2 ||
+		error "mount $MOUNT2 failed"
+	stack_trap "umount_client $MOUNT2"
+
+	local saved_DIR=$DIR
+
+	export DIR=$MOUNT2
+
+	stack_trap "export DIR=$saved_DIR"
+
+	# first check filesystem-wide default LMV inheritance
+	test_fs_dmv_inherit || error "incorrect fs default LMV inheritance"
+
+	# then check subdirs are spread to all MDTs
+	createmany -d $DIR/s $((MDSCOUNT * 100)) || error "createmany failed"
+
+	local count=$($LFS getstripe -m $DIR/s* | sort -u | wc -l)
+
+	(( $count == $MDSCOUNT )) || error "dirs are spread to $count MDTs"
+}
+run_test 413g "enforce ROOT default LMV on subdir mount"
 
 test_413z() {
 	local pids=""

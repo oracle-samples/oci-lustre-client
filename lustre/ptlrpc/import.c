@@ -1492,6 +1492,7 @@ static int signal_completed_replay(struct obd_import *imp)
 			     MSG_LOCK_REPLAY_DONE | MSG_REQ_REPLAY_DONE);
 	if (AT_OFF)
 		req->rq_timeout *= 3;
+	req->rq_no_delay = 1;
 	req->rq_interpret_reply = completed_replay_interpret;
 
 	ptlrpcd_add_req(req);

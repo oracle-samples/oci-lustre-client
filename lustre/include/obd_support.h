@@ -463,6 +463,7 @@ extern char obd_jobid_var[];
 #define OBD_FAIL_NET_ERROR_RPC		 0x532
 #define OBD_FAIL_PTLRPC_IDLE_RACE	 0x533
 #define OBD_FAIL_PTLRPC_ENQ_RESEND	 0x534
+#define OBD_FAIL_PTLRPC_FAIL_REPLAY	 0x537
 
 #define OBD_FAIL_OBD_PING_NET            0x600
 /*	OBD_FAIL_OBD_LOG_CANCEL_NET      0x601 obsolete since 1.5 */
@@ -539,6 +540,7 @@ extern char obd_jobid_var[];
 #define OBD_FAIL_QUOTA_INIT              0xA05
 #define OBD_FAIL_QUOTA_PREACQ            0xA06
 #define OBD_FAIL_QUOTA_RECALC            0xA07
+#define OBD_FAIL_QUOTA_NOSYNC            0xA09
 
 #define OBD_FAIL_LPROC_REMOVE            0xB00
 
