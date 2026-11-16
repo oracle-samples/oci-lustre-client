@@ -15,7 +15,7 @@ https://github.com/oracle-samples/oci-lustre-client/releases
 Each release is associated with a Git tag, such as:
 
 ```text
-2.15.8_oci_v1
+2.15.8_oci_v2
 ```
 
 Watch the repository on GitHub and choose **Custom** notifications, then
@@ -35,7 +35,7 @@ To check out a specific OCI release tag:
 ```bash
 git clone https://github.com/oracle-samples/oci-lustre-client.git
 cd oci-lustre-client
-git checkout 2.15.8_oci_v1
+git checkout 2.15.8_oci_v2
 ```
 
 ## Branches and tags
